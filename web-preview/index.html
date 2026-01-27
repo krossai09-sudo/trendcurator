@@ -244,6 +244,12 @@ if(signupForm){
       if(res.ok && data && data.ok){
         msg.textContent = 'Thanks — check your inbox for confirmation (or keep an eye on our weekly digests).';
         emailInput.value='';
+        console.log('[SIGNUP] success', data);
+        // mark session so refresh shows welcome
+        sessionStorage.setItem('trendcurator_just_signed_up', '1');
+        // refresh latest issue, reveal and scroll to it
+        await refreshLatestPick();
+        revealAndScrollHero();
       } else if(data && data.error && data.error.toLowerCase().includes('exists')){
         msg.textContent = 'You are already subscribed — thanks!';
       } else {
@@ -301,6 +307,8 @@ async function savePick(e){
   return false;
 }
 
+let __latest_issue = null;
+
 // Refresh latest pick display from GET /issues -> first item
 async function refreshLatestPick(){
   try{
@@ -309,15 +317,60 @@ async function refreshLatestPick(){
     const issues = await res.json();
     if(issues && issues.length){
       const latest = issues[0];
+      __latest_issue = latest;
       // Update hero and meta
       const hero = document.querySelector('.hero');
-      if(hero) hero.textContent = '';
+      if(hero) hero.textContent = latest.title;
       const titleEl = document.querySelector('.meta div div');
       if(titleEl) titleEl.textContent = latest.title;
       const mutedEl = document.querySelector('.meta .muted');
-      if(mutedEl) mutedEl.textContent = latest.reason + ' — Recommender score: ' + (latest.score||'-');
+      if(mutedEl) mutedEl.textContent = latest.reason + ((latest.score!==undefined && latest.score!==null) ? (' — Recommender score: ' + latest.score) : '');
+      // ensure CTA link present
+      let ctaLink = document.querySelector('.meta .product-cta');
+      if(!ctaLink){
+        ctaLink = document.createElement('a');
+        ctaLink.className = 'product-cta small';
+        ctaLink.style.marginLeft = '12px';
+        ctaLink.style.color = 'var(--accent)';
+        ctaLink.style.fontWeight = '700';
+        const metaHeader = document.querySelector('.meta > div');
+        if(metaHeader) metaHeader.appendChild(ctaLink);
+      }
+      if(__latest_issue.link){
+        ctaLink.href = __latest_issue.link;
+        ctaLink.textContent = 'View product';
+        ctaLink.target = '_blank';
+        ctaLink.rel = 'noopener noreferrer';
+      } else {
+        ctaLink.href = '#';
+        ctaLink.textContent = 'Learn more';
+      }
     }
   }catch(e){ console.error('refresh error',e); }
+}
+
+// Helper to reveal hero and scroll (with highlight)
+function revealAndScrollHero(isWelcome){
+  const hero = document.querySelector('.hero');
+  const titleEl = document.querySelector('.meta div div');
+  const mutedEl = document.querySelector('.meta .muted');
+  if(!__latest_issue) return;
+  if(titleEl) titleEl.textContent = __latest_issue.title;
+  if(mutedEl) mutedEl.textContent = __latest_issue.reason + ((__latest_issue.score!==undefined && __latest_issue.score!==null) ? (' — Recommender score: ' + __latest_issue.score) : '');
+  if(hero) hero.textContent = __latest_issue.title;
+  // show welcome if just signed up
+  if(isWelcome){
+    const msg = document.getElementById('signup-msg');
+    if(msg) msg.textContent = 'Welcome — here\'s your free pick below.';
+  }
+  // scroll into view
+  const el = document.querySelector('.card');
+  el && el.scrollIntoView({behavior:'smooth',block:'center'});
+  // brief highlight
+  const orig = el.style.boxShadow;
+  el.style.transition = 'box-shadow 0.25s ease';
+  el.style.boxShadow = '0 6px 20px rgba(95,179,200,0.12)';
+  setTimeout(()=>{ el.style.boxShadow = orig; }, 1200);
 }
 
 // Helper to render admin panel when needed
@@ -381,7 +434,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
         const res = await fetch('/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,source:'pro_waitlist',utm:''})});
         const data = await res.json().catch(()=>null);
         console.log('[PRO_SIGNUP] response', res.status, data);
-        if(res.ok && data && data.ok){ proMsg.textContent='Thanks — you are on the Pro waitlist.'; document.getElementById('pro-email').value=''; }
+        if(res.ok && data && data.ok){ proMsg.textContent='Thanks — you are on the Pro waitlist.'; document.getElementById('pro-email').value=''; console.log('[PRO_SIGNUP] success', data); sessionStorage.setItem('trendcurator_just_signed_up','1'); await refreshLatestPick(); revealAndScrollHero(); }
         else { proMsg.textContent = (data && data.error) ? data.error : 'Signup failed — try again later.'; }
       }catch(err){ console.error('[PRO_SIGNUP] network error', err); proMsg.textContent='Network error — try again.'; }
       finally{ btn.disabled=false; btn.textContent='Join'; }
