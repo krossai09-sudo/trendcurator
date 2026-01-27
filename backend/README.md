@@ -12,7 +12,7 @@ Install
 Environment
 - ADMIN_TOKEN - token string used to authenticate /publish (default: changeme_admin_token)
 - PORT - optional port (default: 8787). Render will provide PORT and expects the service to bind 0.0.0.0
-- BASE_URL - public base URL for your service (used to build links in publish responses). Optional; defaults to http://localhost:<PORT>
+- BASE_URL - public base URL for your service (used to build links in publish responses). Optional; if not set then on Render it defaults to https://trendcurator.onrender.com; locally it defaults to http://localhost:<PORT>
 - DATA_DIR - directory where SQLite DB will be stored.
   - Default (local): ./ .data
   - Recommended for Render (free tier): /opt/render/project/src/backend/.data
@@ -34,7 +34,7 @@ Render deploy (recommended for public preview)
 3) Environment variables (set in Render service settings):
    - ADMIN_TOKEN: set to a strong secret (e.g. SUPERSECRET)
    - DATA_DIR: /opt/render/project/src/backend/.data
-   - BASE_URL: https://<your-service>.onrender.com (optional but recommended)
+   - BASE_URL: https://trendcurator.onrender.com  (recommended; if unset, the server will default to this on Render)
 4) Deploy. Render will build and start the service and provide a public URL.
 
 Important: trust proxy on Render

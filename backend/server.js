@@ -11,7 +11,10 @@ const fs = require('fs');
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'changeme_admin_token';
 const PORT = process.env.PORT || 8787;
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`; // used to build issue URLs in responses
+const BASE_URL_ENV = process.env.BASE_URL;
+const DEFAULT_RENDER_BASE = 'https://trendcurator.onrender.com';
+// BASE_URL will be computed per-request in publish handler to avoid localhost in production
+const BASE_URL = BASE_URL_ENV || `http://localhost:${PORT}`; // fallback for local dev
 // DATA_DIR handling: prefer explicit env var; when on Render and DATA_DIR not set, default to Render-friendly workspace
 const DEFAULT_RENDER_DATA_DIR = '/opt/render/project/src/backend/.data';
 const DATA_DIR = process.env.DATA_DIR || (process.env.RENDER ? DEFAULT_RENDER_DATA_DIR : path.join(__dirname, '.data'));
@@ -89,7 +92,9 @@ app.post('/signup', async (req, res) => {
       stmt.run(id, value.email, value.source || null, value.utm || null, ts, function(insertErr){
         if(insertErr){ console.error('DB error',insertErr); return res.status(500).json({ error: 'Database error' }); }
         console.log(`[EMAIL STUB] New signup: ${value.email} source=${value.source||''} utm=${value.utm||''}`);
-        return res.json({ ok: true, id });
+        const resp = { ok: true, id };
+        console.log(JSON.stringify({event:'signup', email: value.email, source: value.source||'', resp}));
+        return res.json(resp);
       });
     });
   }catch(e){
@@ -113,8 +118,10 @@ app.post('/publish', (req, res) => {
     }
     db.get('SELECT COUNT(1) AS c FROM subscribers', (err2,row)=>{
       const count = (row && row.c) || 0;
-      console.log(JSON.stringify({event:'publish', id, title:value.title, subscribers:count, ts}));
-      const issueUrl = `${BASE_URL}/archive.html#${id}`;
+      // compute base URL: prefer env, else if on Render default to known domain, else derive from request headers
+      const baseUrl = BASE_URL_ENV || (process.env.RENDER ? DEFAULT_RENDER_BASE : `${req.get('x-forwarded-proto')||req.protocol}://${req.get('x-forwarded-host')||req.get('host')}`);
+      const issueUrl = `${baseUrl.replace(/\/$/, '')}/archive.html#${id}`;
+      console.log(JSON.stringify({event:'publish', id, title:value.title, subscribers:count, ts, baseUrl, issueUrl}));
       return res.json({ ok: true, id, url: issueUrl });
     });
   });
