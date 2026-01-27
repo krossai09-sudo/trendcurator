@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>TrendCurator — Weekly Picks (Preview)</title>
+  <style>
+    :root{--bg:#0b0b0c;--card:#0f1112;--muted:#9aa0a6;--accent:#7bd389;--accent-2:#6bd0ff}
+    body{background:var(--bg);color:#e6e6e6;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:48px}
+    .container{max-width:980px;margin:0 auto}
+    header{display:flex;align-items:center;gap:16px}
+    .logo{width:64px;height:64px;background:linear-gradient(135deg,#0f1314,#101215);border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:700}
+    h1{margin:0;font-size:24px}
+    p.lead{color:var(--muted);margin-top:6px}
+    .card{background:var(--card);padding:20px;border-radius:14px;margin-top:18px}
+    .hero-row{display:flex;gap:20px;align-items:center}
+    .hero{width:220px;height:140px;background:#000;border-radius:10px;flex:0 0 220px;display:flex;align-items:center;justify-content:center;color:#666}
+    .meta{flex:1}
+    .cta{background:var(--accent);color:#08110b;padding:10px 14px;border-radius:10px;text-decoration:none;font-weight:700}
+    .muted{color:var(--muted)}
+    form.inline{display:flex;gap:8px;margin-top:12px}
+    input[type=email]{background:#0b0b0c;border:1px solid #222;padding:10px 12px;border-radius:10px;color:#e6e6e6;min-width:260px}
+    .features{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
+    .feature{background:#0b0c0d;padding:12px;border-radius:10px}
+    .pricing{display:flex;gap:12px;margin-top:18px}
+    .plan{background:#0b0c0d;padding:16px;border-radius:12px;flex:1}
+    .plan h3{margin:0 0 8px 0}
+    .faq{margin-top:18px}
+    .faq h4{margin:10px 0}
+    .editor{margin-top:12px;background:#080909;padding:12px;border-radius:10px}
+    footer{color:var(--muted);font-size:13px;margin-top:24px}
+    .roadmap{margin-top:18px}
+    .task-list{margin-top:12px}
+    code{background:#050607;padding:2px 6px;border-radius:6px;color:#9fd8b6}
+    .small{font-size:13px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">TC</div>
+      <div>
+        <h1>TrendCurator — Curated weekly picks for curious buyers</h1>
+        <p class="lead">A concise, human-curated digest of products that matter — not clickbait. Subscribe. Discover. Return.</p>
+      </div>
+    </header>
+
+    <div class="card">
+      <div class="hero-row">
+        <div class="hero">This week's pick</div>
+        <div class="meta">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <div style="font-weight:800;font-size:18px">Insulated Stainless Bottle — Clean Edition</div>
+              <div class="muted">Selected for durability, shareability and accessory potential — Recommender score: 86</div>
+            </div>
+            <a class="cta" href="#pricing">Get early access</a>
+          </div>
+
+          <p class="small" style="margin-top:10px">Why we pick it: visually strong on dark creative, steady demand across platforms, high retention opportunity through accessories and replenishment. Delivered: a single focused pick, short reasoning, and a subtle buy/subscribe option.</p>
+
+          <form class="inline" action="#signup">
+            <input type="email" placeholder="email@you.com" aria-label="email">
+            <button class="cta" type="submit">Join — it's free</button>
+          </form>
+
+        </div>
+      </div>
+
+      <div class="features" style="margin-top:16px">
+        <div class="feature"><strong>Curated</strong><div class="muted">Human-reviewed picks, not algorithmic noise.</div></div>
+        <div class="feature"><strong>Minimal</strong><div class="muted">One short email. One clear recommendation.</div></div>
+        <div class="feature"><strong>Actionable</strong><div class="muted">Where to buy, why it matters, and what to watch next.</div></div>
+      </div>
+    </div>
+
+    <div class="card" id="pricing">
+      <strong class="muted">Pricing</strong>
+      <div style="display:flex;gap:12px;margin-top:12px">
+        <div class="plan">
+          <h3>Free</h3>
+          <div class="muted">Weekly digest • 1 curated pick • Newsletter-only</div>
+          <ul class="small">
+            <li>1 pick per week</li>
+            <li>Short rationale & link</li>
+            <li>Community voting (monthly)</li>
+          </ul>
+          <div style="margin-top:10px"><a class="cta" href="#signup">Start free</a></div>
+        </div>
+        <div class="plan">
+          <h3>Pro — £5 / month (preview)</h3>
+          <div class="muted">Everything in Free, plus advanced features</div>
+          <ul class="small">
+            <li>Early access + exclusive picks</li>
+            <li>Accessory bundles & member discounts</li>
+            <li>Monthly themed curations</li>
+            <li>Priority support</li>
+          </ul>
+          <div style="margin-top:10px"><a class="cta" href="#signup">Join Pro</a></div>
+        </div>
+      </div>
+      <p class="small" style="margin-top:10px">Pricing is provisional for MVP. We’ll refine value props after the pilot and first cohort feedback.</p>
+    </div>
+
+    <div class="card roadmap">
+      <strong class="muted">SaaS MVP roadmap & weekly digest engine</strong>
+      <ol class="small" style="margin-top:8px">
+        <li>Collect signals (Amazon, X, TikTok, Google Trends)</li>
+        <li>Curate weekly picks via admin editor</li>
+        <li>Generate issue (email + archived web page)</li>
+        <li>Send digest to subscribers</li>
+        <li>Measure opens, clicks, conversion</li>
+      </ol>
+
+      <div class="task-list">
+        <strong class="muted">First 10 issues/tasks</strong>
+        <ol class="small">
+          <li>Set up newsletter provider (Mailgun/SendGrid/Postmark)</li>
+          <li>Wire admin editor to save "this week's pick" (auth-lite)</li>
+          <li>Implement signup endpoint and store emails</li>
+          <li>Scrape/collect trend signals for 5 categories</li>
+          <li>Design email template (dark-mode friendly)</li>
+          <li>Create 5 pilot issues (one per candidate category)</li>
+          <li>Deploy preview site + public signup</li>
+          <li>Run small traffic test (X + organic shares)</li>
+          <li>Gather first 100 signups and feedback</li>
+          <li>Iterate copy and pricing based on engagement</li>
+        </ol>
+      </div>
+
+    </div>
+
+    <div class="card">
+      <strong class="muted">FAQ</strong>
+      <div class="faq small">
+        <h4>What is TrendCurator?</h4>
+        <div class="muted">A weekly, human-curated selection of trending, useful products — chosen for longevity and re-subscription potential.</div>
+        <h4>How often will I receive picks?</h4>
+        <div class="muted">Weekly. Each email contains one clear recommendation and short rationale.</div>
+        <h4>Will I get spam?</h4>
+        <div class="muted">No — that’s the promise. Minimal, relevant, and useful. Unsubscribe any time.</div>
+        <h4>How do you choose products?</h4>
+        <div class="muted">We combine cross-platform signals with human review to avoid short-lived fads.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <strong class="muted">Admin: This week's pick (admin only)</strong>
+      <div class="editor">
+        <form id="editor" onsubmit="return savePick(event)">
+          <label class="small muted">Title</label><br>
+          <input id="pick-title" type="text" style="width:100%;padding:8px;border-radius:8px;border:1px solid #222;background:#070808;color:#e6e6e6">
+          <label class="small muted" style="margin-top:8px">Short reason</label><br>
+          <textarea id="pick-reason" style="width:100%;padding:8px;border-radius:8px;border:1px solid #222;background:#070808;color:#e6e6e6" rows="3"></textarea>
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+            <button class="cta" type="submit">Save (admin)</button>
+            <span class="small muted">(This is a local preview editor — in MVP we wire this to an authenticated endpoint.)</span>
+          </div>
+        </form>
+        <div id="editor-msg" class="small muted" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <footer>
+      <div class="small muted">Preview site. Built for the TrendCurator MVP. I can scaffold the backend (signup storage, email send, admin auth) and deploy a live preview with a temporary domain.</div>
+    </footer>
+  </div>
+
+<script>
+// Helper: parse utm_* and source from URL
+function parseUrlParams(){
+  const params = new URLSearchParams(window.location.search);
+  const out = {};
+  for(const [k,v] of params.entries()){
+    if(k.startsWith('utm_')) out.utm = out.utm ? out.utm + '&' + k + '=' + v : `${k}=${v}`;
+    if(k==='source') out.source = v;
+  }
+  return out;
+}
+
+// Signup form handling
+const signupForm = document.querySelector('form[action="#signup"]');
+if(signupForm){
+  signupForm.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const emailInput = signupForm.querySelector('input[type="email"]');
+    const btn = signupForm.querySelector('button');
+    const msgAreaId = 'signup-msg';
+    // clear previous
+    let msg = document.getElementById(msgAreaId);
+    if(!msg){ msg = document.createElement('div'); msg.id = msgAreaId; msg.className='small muted'; signupForm.parentNode.appendChild(msg); }
+
+    const email = emailInput.value.trim();
+    if(!email){ msg.textContent='Please enter a valid email.'; return; }
+    const params = parseUrlParams();
+    btn.disabled = true; btn.textContent='Joining...';
+    try{
+      const res = await fetch('/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,source:params.source||'',utm:params.utm||''})});
+      const data = await res.json();
+      if(res.ok && data.ok){
+        msg.textContent = 'Thanks — check your inbox for confirmation (or keep an eye on our weekly digests).';
+        emailInput.value='';
+      } else if(data && data.error && data.error.toLowerCase().includes('exists')){
+        msg.textContent = 'You are already subscribed — thanks!';
+      } else {
+        msg.textContent = data.error || 'Signup failed — try again later.';
+      }
+    }catch(err){
+      console.error(err);
+      msg.textContent = 'Network error — try again.';
+    } finally {
+      btn.disabled = false; btn.textContent='Join — it\'s free';
+    }
+  });
+}
+
+// Admin panel: prompt for token, store in sessionStorage, attach to publish calls
+function ensureAdminToken(){
+  let token = sessionStorage.getItem('tc_admin_token');
+  if(!token){
+    token = prompt('Enter ADMIN_TOKEN (session only)');
+    if(token) sessionStorage.setItem('tc_admin_token', token);
+  }
+  return token;
+}
+
+async function savePick(e){
+  e.preventDefault();
+  const title=document.getElementById('pick-title').value.trim();
+  const reason=document.getElementById('pick-reason').value.trim();
+  if(!title||!reason){document.getElementById('editor-msg').textContent='Please provide title and reason.';return false}
+
+  const adminToken = ensureAdminToken();
+  if(!adminToken){ document.getElementById('editor-msg').textContent='Publish cancelled: admin token required.'; return false }
+
+  const payload = { title, description: title, reason, link: '', score: 80 };
+  const btn = e.submitter || document.querySelector('#editor button');
+  btn.disabled = true; btn.textContent='Publishing...';
+  try{
+    const res = await fetch('/publish',{method:'POST',headers:{'Content-Type':'application/json','X-Admin-Token':adminToken},body:JSON.stringify(payload)});
+    const data = await res.json();
+    if(res.ok && data.ok){
+      document.getElementById('editor-msg').textContent = 'Published — issue id: ' + data.id;
+      // refresh latest pick display
+      await refreshLatestPick();
+    } else {
+      document.getElementById('editor-msg').textContent = data.error || 'Publish failed';
+      if(res.status===401) sessionStorage.removeItem('tc_admin_token');
+    }
+  }catch(err){
+    console.error(err);
+    document.getElementById('editor-msg').textContent = 'Network error during publish.';
+  } finally{
+    btn.disabled = false; btn.textContent='Save (admin)';
+  }
+  return false;
+}
+
+// Refresh latest pick display from GET /issues -> first item
+async function refreshLatestPick(){
+  try{
+    const res = await fetch('/issues');
+    if(!res.ok) return;
+    const issues = await res.json();
+    if(issues && issues.length){
+      const latest = issues[0];
+      // Update hero and meta
+      const hero = document.querySelector('.hero');
+      if(hero) hero.textContent = '';
+      const titleEl = document.querySelector('.meta div div');
+      if(titleEl) titleEl.textContent = latest.title;
+      const mutedEl = document.querySelector('.meta .muted');
+      if(mutedEl) mutedEl.textContent = latest.reason + ' — Recommender score: ' + (latest.score||'-');
+    }
+  }catch(e){ console.error('refresh error',e); }
+}
+
+// Populate editor if present from localStorage
+const existing=localStorage.getItem('trendcurator_pick');
+if(existing){
+  try{const p=JSON.parse(existing);document.getElementById('pick-title').value=p.title;document.getElementById('pick-reason').value=p.reason}catch(e){}
+}
+
+// Wire up editor form
+const editorForm = document.getElementById('editor');
+if(editorForm){ editorForm.addEventListener('submit', savePick); }
+
+// On load, refresh latest pick
+window.addEventListener('DOMContentLoaded', ()=>{ refreshLatestPick(); });
+</script>
+</body>
+</html>

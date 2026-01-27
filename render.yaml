@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: trendcurator-backend
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: "cd backend && npm install"
+    startCommand: "cd backend && npm start"
+    envVars:
+      - key: ADMIN_TOKEN
+        value: "changeme_admin_token"
+      - key: DATA_DIR
+        value: "/var/data"
