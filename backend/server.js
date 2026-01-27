@@ -11,7 +11,9 @@ const fs = require('fs');
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'changeme_admin_token';
 const PORT = process.env.PORT || 8787;
-const DATA_DIR = process.env.DATA_DIR || (process.env.RENDER ? '/var/data' : path.join(__dirname, '.data'));
+// DATA_DIR handling: prefer explicit env var; when on Render and DATA_DIR not set, default to Render-friendly workspace
+const DEFAULT_RENDER_DATA_DIR = '/opt/render/project/src/backend/.data';
+const DATA_DIR = process.env.DATA_DIR || (process.env.RENDER ? DEFAULT_RENDER_DATA_DIR : path.join(__dirname, '.data'));
 const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, 'data.sqlite');
 
 // Ensure data dir exists
@@ -43,6 +45,7 @@ db.serialize(() => {
 });
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
@@ -123,6 +126,6 @@ app.get('/issues/:id', (req, res) => {
 // Serve preview site static (optional)
 app.use('/', express.static(path.join(__dirname, '..', 'web-preview')));
 
-app.listen(PORT, ()=>{
-  console.log(`TrendCurator backend listening on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', ()=>{
+  console.log(`TrendCurator backend listening on http://0.0.0.0:${PORT}`);
 });

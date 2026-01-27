@@ -12,7 +12,10 @@ Install
 Environment
 - ADMIN_TOKEN - token string used to authenticate /publish (default: changeme_admin_token)
 - PORT - optional port (default: 8787). Render will provide PORT and expects the service to bind 0.0.0.0
-- DATA_DIR - directory where SQLite DB will be stored. Default (local): ./ .data ; On Render we recommend /var/data
+- DATA_DIR - directory where SQLite DB will be stored.
+  - Default (local): ./ .data
+  - Recommended for Render (free tier): /opt/render/project/src/backend/.data
+    (Do NOT set /var/data unless you have attached a paid persistent disk.)
 - DB_PATH - optional path to sqlite file (default: <DATA_DIR>/data.sqlite)
 
 Run (local)
@@ -31,6 +34,12 @@ Render deploy (recommended for public preview)
    - ADMIN_TOKEN: set to a strong secret (e.g. SUPERSECRET)
    - DATA_DIR: /var/data
 4) Deploy. Render will build and start the service and provide a public URL.
+
+Important: trust proxy on Render
+- Render runs services behind a proxy. For correct client IP detection and to avoid errors from express-rate-limit, the app must enable trust proxy.
+- This project sets it automatically in backend/server.js with:
+
+    app.set('trust proxy', 1);
 
 Endpoints
 - POST /signup

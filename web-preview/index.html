@@ -5,34 +5,73 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>TrendCurator — Weekly Picks (Preview)</title>
   <style>
-    :root{--bg:#0b0b0c;--card:#0f1112;--muted:#9aa0a6;--accent:#7bd389;--accent-2:#6bd0ff}
-    body{background:var(--bg);color:#e6e6e6;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:48px}
+    :root{
+      --bg: #0f1113;              /* charcoal background */
+      --card: #15171a;            /* slightly lighter card */
+      --muted: #9da6ad;          /* higher contrast muted text */
+      --text: #e9edf0;           /* primary text */
+      --accent: #5fb3c8;         /* muted teal primary accent */
+      --border: #202326;
+      --radius: 12px;
+    }
+
+    html,body{height:100%}
+    body{
+      background:var(--bg);
+      color:var(--text);
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+      margin:0;
+      padding:48px 28px;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+      line-height:1.5;
+      font-size:15px;
+    }
+
     .container{max-width:980px;margin:0 auto}
-    header{display:flex;align-items:center;gap:16px}
-    .logo{width:64px;height:64px;background:linear-gradient(135deg,#0f1314,#101215);border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:700}
-    h1{margin:0;font-size:24px}
-    p.lead{color:var(--muted);margin-top:6px}
-    .card{background:var(--card);padding:20px;border-radius:14px;margin-top:18px}
+    header{display:flex;align-items:center;gap:18px}
+    .logo{width:64px;height:64px;background:linear-gradient(180deg,#101214,#141617);border-radius:14px;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--text)}
+    h1{margin:0;font-size:22px;font-weight:700}
+    p.lead{color:var(--muted);margin-top:6px;margin-bottom:0}
+
+    .card{background:var(--card);padding:22px;border-radius:var(--radius);margin-top:20px;border:1px solid var(--border)}
     .hero-row{display:flex;gap:20px;align-items:center}
-    .hero{width:220px;height:140px;background:#000;border-radius:10px;flex:0 0 220px;display:flex;align-items:center;justify-content:center;color:#666}
+    .hero{width:220px;height:140px;background:#0b0d0f;border-radius:10px;flex:0 0 220px;display:flex;align-items:center;justify-content:center;color:#99a0a6;font-weight:600}
     .meta{flex:1}
-    .cta{background:var(--accent);color:#08110b;padding:10px 14px;border-radius:10px;text-decoration:none;font-weight:700}
+    .cta{background:var(--accent);color:#052027;padding:10px 14px;border-radius:10px;text-decoration:none;font-weight:700;border:none}
+
     .muted{color:var(--muted)}
-    form.inline{display:flex;gap:8px;margin-top:12px}
-    input[type=email]{background:#0b0b0c;border:1px solid #222;padding:10px 12px;border-radius:10px;color:#e6e6e6;min-width:260px}
-    .features{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
-    .feature{background:#0b0c0d;padding:12px;border-radius:10px}
-    .pricing{display:flex;gap:12px;margin-top:18px}
-    .plan{background:#0b0c0d;padding:16px;border-radius:12px;flex:1}
+    form.inline{display:flex;gap:10px;margin-top:14px;align-items:center}
+    input[type=email]{background:transparent;border:1px solid var(--border);padding:10px 12px;border-radius:10px;color:var(--text);min-width:260px}
+    input[type=email]::placeholder{color:#6e787d}
+
+    .features{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}
+    .feature{background:#0f1113;padding:14px;border-radius:10px;border:1px solid var(--border)}
+
+    .pricing{display:flex;gap:14px;margin-top:18px}
+    .plan{background:#0f1113;padding:16px;border-radius:12px;flex:1;border:1px solid var(--border)}
     .plan h3{margin:0 0 8px 0}
+
     .faq{margin-top:18px}
     .faq h4{margin:10px 0}
-    .editor{margin-top:12px;background:#080909;padding:12px;border-radius:10px}
-    footer{color:var(--muted);font-size:13px;margin-top:24px}
+    .editor{margin-top:12px;background:#0d0f10;padding:14px;border-radius:10px;border:1px solid var(--border)}
+
+    footer{color:var(--muted);font-size:13px;margin-top:28px}
     .roadmap{margin-top:18px}
     .task-list{margin-top:12px}
-    code{background:#050607;padding:2px 6px;border-radius:6px;color:#9fd8b6}
+    code{background:#0b0c0d;padding:4px 8px;border-radius:6px;color:var(--accent)}
     .small{font-size:13px;color:var(--muted)}
+
+    /* buttons */
+    button, .cta { cursor:pointer }
+
+    /* responsive */
+    @media (max-width:760px){
+      .hero-row{flex-direction:column;align-items:stretch}
+      .hero{width:100%;height:140px}
+      .features{grid-template-columns:1fr}
+      .pricing{flex-direction:column}
+    }
   </style>
 </head>
 <body>
@@ -63,6 +102,7 @@
             <input type="email" placeholder="email@you.com" aria-label="email">
             <button class="cta" type="submit">Join — it's free</button>
           </form>
+          <div id="signup-msg" class="small muted" role="status" aria-live="polite" style="margin-top:8px;display:block;visibility:visible"></div>
 
         </div>
       </div>
@@ -144,22 +184,7 @@
       </div>
     </div>
 
-    <div class="card">
-      <strong class="muted">Admin: This week's pick (admin only)</strong>
-      <div class="editor">
-        <form id="editor" onsubmit="return savePick(event)">
-          <label class="small muted">Title</label><br>
-          <input id="pick-title" type="text" style="width:100%;padding:8px;border-radius:8px;border:1px solid #222;background:#070808;color:#e6e6e6">
-          <label class="small muted" style="margin-top:8px">Short reason</label><br>
-          <textarea id="pick-reason" style="width:100%;padding:8px;border-radius:8px;border:1px solid #222;background:#070808;color:#e6e6e6" rows="3"></textarea>
-          <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-            <button class="cta" type="submit">Save (admin)</button>
-            <span class="small muted">(This is a local preview editor — in MVP we wire this to an authenticated endpoint.)</span>
-          </div>
-        </form>
-        <div id="editor-msg" class="small muted" style="margin-top:8px"></div>
-      </div>
-    </div>
+    <!-- admin panel injected by JS when ?admin=1 -->
 
     <footer>
       <div class="small muted">Preview site. Built for the TrendCurator MVP. I can scaffold the backend (signup storage, email send, admin auth) and deploy a live preview with a temporary domain.</div>
@@ -188,10 +213,10 @@ if(signupForm){
     const msgAreaId = 'signup-msg';
     // clear previous
     let msg = document.getElementById(msgAreaId);
-    if(!msg){ msg = document.createElement('div'); msg.id = msgAreaId; msg.className='small muted'; signupForm.parentNode.appendChild(msg); }
+    if(!msg){ msg = document.getElementById(msgAreaId) || document.createElement('div'); msg.id = msgAreaId; msg.className='small muted'; signupForm.parentNode.appendChild(msg); }
 
     const email = emailInput.value.trim();
-    if(!email){ msg.textContent='Please enter a valid email.'; return; }
+    if(!email){ msg.textContent='Please enter a valid email.'; msg.style.display='block'; return; }
     const params = parseUrlParams();
     btn.disabled = true; btn.textContent='Joining...';
     try{
@@ -200,15 +225,19 @@ if(signupForm){
       if(res.ok && data.ok){
         msg.textContent = 'Thanks — check your inbox for confirmation (or keep an eye on our weekly digests).';
         emailInput.value='';
+        console.log('[SIGNUP] success', data);
       } else if(data && data.error && data.error.toLowerCase().includes('exists')){
         msg.textContent = 'You are already subscribed — thanks!';
+        console.log('[SIGNUP] already subscribed', data);
       } else {
         msg.textContent = data.error || 'Signup failed — try again later.';
+        console.error('[SIGNUP] error', data);
       }
     }catch(err){
-      console.error(err);
+      console.error('[SIGNUP] network error', err);
       msg.textContent = 'Network error — try again.';
     } finally {
+      msg.style.display='block';
       btn.disabled = false; btn.textContent='Join — it\'s free';
     }
   });
@@ -275,18 +304,44 @@ async function refreshLatestPick(){
   }catch(e){ console.error('refresh error',e); }
 }
 
-// Populate editor if present from localStorage
-const existing=localStorage.getItem('trendcurator_pick');
-if(existing){
-  try{const p=JSON.parse(existing);document.getElementById('pick-title').value=p.title;document.getElementById('pick-reason').value=p.reason}catch(e){}
+// Helper to render admin panel when needed
+function renderAdminPanel(){
+  const adminHtml = `
+  <div class="card" id="admin-card">
+    <strong class="muted">Admin: This week's pick (admin only)</strong>
+    <div class="editor">
+      <form id="editor">
+        <label class="small muted">Title</label><br>
+        <input id="pick-title" type="text" style="width:100%;padding:8px;border-radius:8px;border:1px solid #222;background:#070808;color:#e6e6e6">
+        <label class="small muted" style="margin-top:8px">Short reason</label><br>
+        <textarea id="pick-reason" style="width:100%;padding:8px;border-radius:8px;border:1px solid #222;background:#070808;color:#e6e6e6" rows="3"></textarea>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+          <button class="cta" type="submit">Save (admin)</button>
+          <span class="small muted">(This is a local preview editor — in MVP we wire this to an authenticated endpoint.)</span>
+        </div>
+      </form>
+      <div id="editor-msg" class="small muted" style="margin-top:8px"></div>
+    </div>
+  </div>`;
+  // insert before footer
+  const container = document.querySelector('.container');
+  const footer = container.querySelector('footer');
+  footer.insertAdjacentHTML('beforebegin', adminHtml);
+  // attach handler
+  const editorForm = document.getElementById('editor');
+  if(editorForm) editorForm.addEventListener('submit', savePick);
+  // populate from localStorage if present
+  const existing = localStorage.getItem('trendcurator_pick');
+  if(existing){ try{ const p = JSON.parse(existing); document.getElementById('pick-title').value = p.title; document.getElementById('pick-reason').value = p.reason;}catch(e){} }
 }
 
-// Wire up editor form
-const editorForm = document.getElementById('editor');
-if(editorForm){ editorForm.addEventListener('submit', savePick); }
-
-// On load, refresh latest pick
-window.addEventListener('DOMContentLoaded', ()=>{ refreshLatestPick(); });
+// On load, refresh latest pick and inject admin panel only if ?admin=1
+window.addEventListener('DOMContentLoaded', ()=>{ 
+  refreshLatestPick();
+  const params = new URLSearchParams(window.location.search);
+  const showAdmin = params.get('admin') === '1';
+  if(showAdmin) renderAdminPanel();
+});
 </script>
 </body>
 </html>
