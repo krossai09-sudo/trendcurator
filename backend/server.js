@@ -73,17 +73,28 @@ const publishSchema = Joi.object({
 app.post('/signup', async (req, res) => {
   const { error, value } = signupSchema.validate(req.body);
   if (error) return res.status(400).json({ error: error.message });
-  const id = uuidv4();
   const ts = Date.now();
-  const stmt = db.prepare('INSERT INTO subscribers (id,email,source,utm,ts) VALUES (?,?,?,?,?)');
-  stmt.run(id, value.email, value.source || null, value.utm || null, ts, function(err){
-    if(err){
-      console.error('DB error',err);
-      return res.status(500).json({ error: 'Database error' });
-    }
-    console.log(`[EMAIL STUB] New signup: ${value.email} source=${value.source||''} utm=${value.utm||''}`);
-    return res.json({ ok: true, id });
-  });
+  try{
+    // check if email exists
+    db.get('SELECT id FROM subscribers WHERE email = ?', [value.email], (err,row)=>{
+      if(err){ console.error('DB error', err); return res.status(500).json({ error: 'Database error' }); }
+      if(row){
+        // friendly response when already subscribed
+        console.log(`[EMAIL STUB] Signup attempted for existing email: ${value.email}`);
+        return res.status(200).json({ ok: true, id: row.id, message: 'already_subscribed' });
+      }
+      const id = uuidv4();
+      const stmt = db.prepare('INSERT INTO subscribers (id,email,source,utm,ts) VALUES (?,?,?,?,?)');
+      stmt.run(id, value.email, value.source || null, value.utm || null, ts, function(insertErr){
+        if(insertErr){ console.error('DB error',insertErr); return res.status(500).json({ error: 'Database error' }); }
+        console.log(`[EMAIL STUB] New signup: ${value.email} source=${value.source||''} utm=${value.utm||''}`);
+        return res.json({ ok: true, id });
+      });
+    });
+  }catch(e){
+    console.error('Signup exception', e);
+    return res.status(500).json({ error: 'Server error' });
+  }
 });
 
 app.post('/publish', (req, res) => {

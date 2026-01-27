@@ -345,6 +345,18 @@ async function refreshLatestPick(){
         ctaLink.href = '#';
         ctaLink.textContent = 'Learn more';
       }
+    } else {
+      // no issues yet — show friendly placeholder
+      __latest_issue = null;
+      const hero = document.querySelector('.hero');
+      if(hero) hero.textContent = 'No picks yet';
+      const titleEl = document.querySelector('.meta div div');
+      if(titleEl) titleEl.textContent = 'No picks yet — subscribe to get the first curated pick.';
+      const mutedEl = document.querySelector('.meta .muted');
+      if(mutedEl) mutedEl.textContent = 'We\'re preparing the first issue. Join the list to be notified.';
+      // remove existing CTA if any
+      const ctaLink = document.querySelector('.meta .product-cta');
+      if(ctaLink) ctaLink.remove();
     }
   }catch(e){ console.error('refresh error',e); }
 }
@@ -362,6 +374,8 @@ function revealAndScrollHero(isWelcome){
   if(isWelcome){
     const msg = document.getElementById('signup-msg');
     if(msg) msg.textContent = 'Welcome — here\'s your free pick below.';
+    // clear session flag so it only shows once
+    sessionStorage.removeItem('trendcurator_just_signed_up');
   }
   // scroll into view
   const el = document.querySelector('.card');
