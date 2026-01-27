@@ -12,6 +12,7 @@ Install
 Environment
 - ADMIN_TOKEN - token string used to authenticate /publish (default: changeme_admin_token)
 - PORT - optional port (default: 8787). Render will provide PORT and expects the service to bind 0.0.0.0
+- BASE_URL - public base URL for your service (used to build links in publish responses). Optional; defaults to http://localhost:<PORT>
 - DATA_DIR - directory where SQLite DB will be stored.
   - Default (local): ./ .data
   - Recommended for Render (free tier): /opt/render/project/src/backend/.data
@@ -32,7 +33,8 @@ Render deploy (recommended for public preview)
    - Instance Type: Free (or as desired)
 3) Environment variables (set in Render service settings):
    - ADMIN_TOKEN: set to a strong secret (e.g. SUPERSECRET)
-   - DATA_DIR: /var/data
+   - DATA_DIR: /opt/render/project/src/backend/.data
+   - BASE_URL: https://<your-service>.onrender.com (optional but recommended)
 4) Deploy. Render will build and start the service and provide a public URL.
 
 Important: trust proxy on Render
@@ -64,14 +66,22 @@ Endpoints
       -H "X-Admin-Token: your_admin_token_here" \
       -d '{"title":"This week: Insulated Bottle","description":"Short description","reason":"Why we like it","link":"https://example.com","score":86}'
 
+  Response includes the public URL for the new issue:
+
+    { "ok": true, "id": "...", "url": "https://<YOUR-SERVICE>.onrender.com/archive.html#<id>" }
+
 - GET /issues
   Returns list of published issues (archive)
 
 - GET /issues/:id
   Returns single issue
 
+- GET /health
+  Returns a simple health check JSON { ok: true, ts: <timestamp> }
+
 Notes
 - The frontend preview (web-preview/index.html) is served at / when running the server.
+- Archive page available at /archive.html (lists issues).
 - The admin token is stored as an environment variable (ADMIN_TOKEN). For quick dev you can run:
 
     ADMIN_TOKEN=supersecret node server.js

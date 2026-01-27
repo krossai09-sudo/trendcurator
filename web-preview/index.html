@@ -373,7 +373,7 @@ function revealAndScrollHero(isWelcome){
   // show welcome if just signed up
   if(isWelcome){
     const msg = document.getElementById('signup-msg');
-    if(msg) msg.textContent = 'Welcome — here\'s your free pick below.';
+    if(msg){ msg.textContent = 'Welcome — here\'s your free pick below.'; msg.style.opacity=1; setTimeout(()=>{ msg.style.transition='opacity 1s'; msg.style.opacity=0.9; }, 200); }
     // clear session flag so it only shows once
     sessionStorage.removeItem('trendcurator_just_signed_up');
   }

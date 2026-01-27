@@ -11,6 +11,7 @@ const fs = require('fs');
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'changeme_admin_token';
 const PORT = process.env.PORT || 8787;
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`; // used to build issue URLs in responses
 // DATA_DIR handling: prefer explicit env var; when on Render and DATA_DIR not set, default to Render-friendly workspace
 const DEFAULT_RENDER_DATA_DIR = '/opt/render/project/src/backend/.data';
 const DATA_DIR = process.env.DATA_DIR || (process.env.RENDER ? DEFAULT_RENDER_DATA_DIR : path.join(__dirname, '.data'));
@@ -112,9 +113,9 @@ app.post('/publish', (req, res) => {
     }
     db.get('SELECT COUNT(1) AS c FROM subscribers', (err2,row)=>{
       const count = (row && row.c) || 0;
-      console.log(`[PUBLISH STUB] Published issue ${id} - title=${value.title}`);
-      console.log(`[PUBLISH STUB] Would send email to subscribers (count):`, count);
-      return res.json({ ok: true, id });
+      console.log(JSON.stringify({event:'publish', id, title:value.title, subscribers:count, ts}));
+      const issueUrl = `${BASE_URL}/archive.html#${id}`;
+      return res.json({ ok: true, id, url: issueUrl });
     });
   });
 });
@@ -133,6 +134,22 @@ app.get('/issues/:id', (req, res) => {
     return res.json(row);
   });
 });
+
+// health
+app.get('/health', (req,res)=>{
+  res.json({ ok:true, ts: Date.now() });
+});
+
+// simple structured logging middleware for analytics
+app.use((req,res,next)=>{
+  const start = Date.now();
+  res.on('finish', ()=>{
+    const entry = { event:'request', method:req.method, path:req.path, status:res.statusCode, ip:req.ip, ua:req.headers['user-agent'], duration: Date.now()-start };
+    console.log(JSON.stringify(entry));
+  });
+  next();
+});
+
 
 // Serve preview site static (optional)
 app.use('/', express.static(path.join(__dirname, '..', 'web-preview')));
