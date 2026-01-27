@@ -125,7 +125,7 @@
             <li>Short rationale & link</li>
             <li>Community voting (monthly)</li>
           </ul>
-          <div style="margin-top:10px"><a class="cta" href="#signup">Start free</a></div>
+          <div style="margin-top:10px"><a id="start-free" class="cta" href="#signup">Start free</a></div>
         </div>
         <div class="plan">
           <h3>Pro — £5 / month (preview)</h3>
@@ -136,7 +136,7 @@
             <li>Monthly themed curations</li>
             <li>Priority support</li>
           </ul>
-          <div style="margin-top:10px"><a class="cta" href="#signup">Join Pro</a></div>
+          <div style="margin-top:10px"><a id="join-pro" class="cta" href="#signup">Join Pro</a></div>
         </div>
       </div>
       <p class="small" style="margin-top:10px">Pricing is provisional for MVP. We’ll refine value props after the pilot and first cohort feedback.</p>
@@ -186,6 +186,23 @@
 
     <!-- admin panel injected by JS when ?admin=1 -->
 
+    <!-- Pro waitlist modal (hidden) -->
+    <div id="pro-modal" style="display:none;position:fixed;inset:0;align-items:center;justify-content:center;z-index:60">
+      <div style="background:rgba(8,10,11,0.6);position:absolute;inset:0"></div>
+      <div style="position:relative;width:420px;max-width:94%;background:var(--card);padding:18px;border-radius:12px;border:1px solid var(--border);z-index:61">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:700">Join Pro waitlist</div>
+          <button id="pro-close" style="background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button>
+        </div>
+        <p class="small muted" style="margin-top:10px">Pro is launching soon. Leave your email to get early access and member discounts.</p>
+        <form id="pro-form" style="margin-top:12px;display:flex;gap:8px;align-items:center">
+          <input id="pro-email" type="email" placeholder="you@example.com" style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text)">
+          <button class="cta" type="submit">Join</button>
+        </form>
+        <div id="pro-msg" class="small muted" style="margin-top:8px"></div>
+      </div>
+    </div>
+
     <footer>
       <div class="small muted">Preview site. Built for the TrendCurator MVP. I can scaffold the backend (signup storage, email send, admin auth) and deploy a live preview with a temporary domain.</div>
     </footer>
@@ -205,33 +222,32 @@ function parseUrlParams(){
 
 // Signup form handling
 const signupForm = document.querySelector('form[action="#signup"]');
+const signupMsgElem = document.getElementById('signup-msg');
 if(signupForm){
   signupForm.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const emailInput = signupForm.querySelector('input[type="email"]');
     const btn = signupForm.querySelector('button');
     const msgAreaId = 'signup-msg';
-    // clear previous
+    // ensure visible
     let msg = document.getElementById(msgAreaId);
-    if(!msg){ msg = document.getElementById(msgAreaId) || document.createElement('div'); msg.id = msgAreaId; msg.className='small muted'; signupForm.parentNode.appendChild(msg); }
+    if(!msg){ msg = document.createElement('div'); msg.id = msgAreaId; msg.className='small muted'; signupForm.parentNode.appendChild(msg); }
 
     const email = emailInput.value.trim();
-    if(!email){ msg.textContent='Please enter a valid email.'; msg.style.display='block'; return; }
+    if(!email){ msg.textContent='Please enter a valid email.'; msg.style.display='block'; console.log('[SIGNUP] validation failed'); return; }
     const params = parseUrlParams();
     btn.disabled = true; btn.textContent='Joining...';
     try{
       const res = await fetch('/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,source:params.source||'',utm:params.utm||''})});
-      const data = await res.json();
-      if(res.ok && data.ok){
+      const data = await res.json().catch(()=>null);
+      console.log('[SIGNUP] response', res.status, data);
+      if(res.ok && data && data.ok){
         msg.textContent = 'Thanks — check your inbox for confirmation (or keep an eye on our weekly digests).';
         emailInput.value='';
-        console.log('[SIGNUP] success', data);
       } else if(data && data.error && data.error.toLowerCase().includes('exists')){
         msg.textContent = 'You are already subscribed — thanks!';
-        console.log('[SIGNUP] already subscribed', data);
       } else {
-        msg.textContent = data.error || 'Signup failed — try again later.';
-        console.error('[SIGNUP] error', data);
+        msg.textContent = (data && data.error) ? data.error : 'Signup failed — try again later.';
       }
     }catch(err){
       console.error('[SIGNUP] network error', err);
@@ -335,12 +351,42 @@ function renderAdminPanel(){
   if(existing){ try{ const p = JSON.parse(existing); document.getElementById('pick-title').value = p.title; document.getElementById('pick-reason').value = p.reason;}catch(e){} }
 }
 
-// On load, refresh latest pick and inject admin panel only if ?admin=1
+// Wire Start Free and Join Pro buttons; On load, refresh latest pick and inject admin panel only if ?admin=1
 window.addEventListener('DOMContentLoaded', ()=>{ 
   refreshLatestPick();
   const params = new URLSearchParams(window.location.search);
   const showAdmin = params.get('admin') === '1';
   if(showAdmin) renderAdminPanel();
+
+  // Start free: scroll to signup and focus
+  const startBtn = document.getElementById('start-free');
+  if(startBtn){ startBtn.addEventListener('click', (ev)=>{ ev.preventDefault(); const input = document.querySelector('form[action="#signup"] input[type="email"]'); input && input.scrollIntoView({behavior:'smooth',block:'center'}); input && input.focus(); }); }
+
+  // Join Pro: open modal
+  const joinPro = document.getElementById('join-pro');
+  const proModal = document.getElementById('pro-modal');
+  const proClose = document.getElementById('pro-close');
+  const proForm = document.getElementById('pro-form');
+  const proMsg = document.getElementById('pro-msg');
+  if(joinPro && proModal){
+    joinPro.addEventListener('click',(ev)=>{ ev.preventDefault(); proModal.style.display='flex'; const pe = document.getElementById('pro-email'); pe && pe.focus(); });
+    proClose && proClose.addEventListener('click', ()=>{ proModal.style.display='none'; proMsg.textContent=''; });
+    proModal.addEventListener('click',(ev)=>{ if(ev.target===proModal) { proModal.style.display='none'; proMsg.textContent=''; } });
+    proForm && proForm.addEventListener('submit', async (ev)=>{
+      ev.preventDefault();
+      const email = document.getElementById('pro-email').value.trim();
+      if(!email){ proMsg.textContent='Please enter a valid email.'; return; }
+      const btn = proForm.querySelector('button'); btn.disabled=true; btn.textContent='Joining...';
+      try{
+        const res = await fetch('/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,source:'pro_waitlist',utm:''})});
+        const data = await res.json().catch(()=>null);
+        console.log('[PRO_SIGNUP] response', res.status, data);
+        if(res.ok && data && data.ok){ proMsg.textContent='Thanks — you are on the Pro waitlist.'; document.getElementById('pro-email').value=''; }
+        else { proMsg.textContent = (data && data.error) ? data.error : 'Signup failed — try again later.'; }
+      }catch(err){ console.error('[PRO_SIGNUP] network error', err); proMsg.textContent='Network error — try again.'; }
+      finally{ btn.disabled=false; btn.textContent='Join'; }
+    });
+  }
 });
 </script>
 </body>
