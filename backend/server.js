@@ -20,11 +20,16 @@ const DEFAULT_RENDER_DATA_DIR = '/opt/render/project/src/backend/.data';
 const DATA_DIR = process.env.DATA_DIR || (process.env.RENDER ? DEFAULT_RENDER_DATA_DIR : path.join(__dirname, '.data'));
 const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, 'data.sqlite');
 
-// Ensure data dir exists
+// Ensure data dir exists; warn if using default ephemeral path
+if(!process.env.DATA_DIR && process.env.RENDER){
+  console.warn('WARNING: DATA_DIR not set; data may reset on redeploy. Recommend attaching a Render Persistent Disk and setting DATA_DIR=/var/data');
+}
 try{fs.mkdirSync(DATA_DIR, { recursive: true })}catch(e){console.error('Failed to create DATA_DIR', e)}
 
 // Ensure db dir
 try{fs.mkdirSync(path.dirname(DB_PATH), { recursive: true })}catch(e){console.error('Failed to create DB dir', e)}
+
+console.log(JSON.stringify({ event: 'startup', dbPath: DB_PATH, dataDir: DATA_DIR }));
 
 const db = new sqlite3.Database(DB_PATH);
 
@@ -145,6 +150,7 @@ app.post('/publish', (req, res) => {
 });
 
 app.get('/issues', (req, res) => {
+  res.set('Cache-Control','no-store');
   db.all('SELECT id,title,description,reason,link,score,ts FROM issues ORDER BY ts DESC', (err,rows)=>{
     if(err) return res.status(500).json({ error: 'Database error' });
     return res.json(rows||[]);
