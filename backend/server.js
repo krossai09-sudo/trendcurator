@@ -53,15 +53,17 @@ app.set('trust proxy', 1);
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
-      defaultSrc: ["\x27self\x27"],
-      baseUri: ["\x27self\x27"],
-      formAction: ["\x27self\x27"],
-      frameAncestors: ["\x27self\x27"],
-      imgSrc: ["\x27self\x27", "data:", "https:"],
-      objectSrc: ["\x27none\x27"],
-      scriptSrc: ["\x27self\x27", "\x27unsafe-inline\x27"],
-      scriptSrcAttr: ["\x27none\x27"],
-      styleSrc: ["\x27self\x27", "https:", "\x27unsafe-inline\x27"],
+      defaultSrc: ["'self'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      objectSrc: ["'none'"],
+      // tightened: only allow external scripts from self (we moved inline scripts to external files)
+      scriptSrc: ["'self'"],
+      scriptSrcAttr: ["'none'"],
+      // allow inline styles for now; can be tightened later
+      styleSrc: ["'self'", "https:", "'unsafe-inline'"],
       upgradeInsecureRequests: [],
     },
   },
