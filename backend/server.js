@@ -175,6 +175,92 @@ app.get('/health', (req,res)=>{
   res.json({ ok:true, ts: Date.now() });
 });
 
+// Stripe scaffold: create checkout session, webhook, billing portal
+const STRIPE_SECRET = process.env.STRIPE_SECRET;
+const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID; // price for Pro
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+
+app.post('/create-checkout-session', async (req, res) => {
+  if (!STRIPE_SECRET || !STRIPE_PRICE_ID) {
+    return res.status(501).json({ error: 'Stripe not configured (STRIPE_SECRET or STRIPE_PRICE_ID missing)' });
+  }
+  try {
+    const body = req.body || {};
+    // Minimal payload: { success_url, cancel_url, customer_email }
+    const success_url = body.success_url || (BASE_URL.replace(/\/$/,'') + '/');
+    const cancel_url = body.cancel_url || (BASE_URL.replace(/\/$/,'') + '/');
+    const customer_email = body.customer_email || null;
+    // Lazy require to avoid crash when stripe not installed
+    const Stripe = require('stripe');
+    const stripe = Stripe(STRIPE_SECRET);
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      line_items: [{ price: STRIPE_PRICE_ID, quantity: 1 }],
+      success_url,
+      cancel_url,
+      customer_email,
+    });
+    return res.json({ ok: true, url: session.url, id: session.id });
+  } catch (e) {
+    console.error('Stripe create-checkout error', e);
+    return res.status(500).json({ error: 'Stripe error', detail: e.message });
+  }
+});
+
+// webhook endpoint
+app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+  if (!STRIPE_SECRET || !STRIPE_WEBHOOK_SECRET) {
+    res.status(501).json({ error: 'Stripe webhook not configured' });
+    return;
+  }
+  const payload = req.body;
+  const sig = req.headers['stripe-signature'];
+  const Stripe = require('stripe');
+  const stripe = Stripe(STRIPE_SECRET);
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(payload, sig, STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error('Webhook signature verification failed.', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+  // Handle event types (skeleton)
+  switch (event.type) {
+    case 'checkout.session.completed':
+      console.log('stripe event: checkout.session.completed', event.data.object.id);
+      break;
+    case 'invoice.payment_succeeded':
+      console.log('stripe event: invoice.payment_succeeded', event.data.object.id);
+      break;
+    case 'customer.subscription.updated':
+      console.log('stripe event: customer.subscription.updated', event.data.object.id);
+      break;
+    default:
+      console.log(`Unhandled Stripe event type: ${event.type}`);
+  }
+  res.json({ received: true });
+});
+
+// Billing portal redirect (create session)
+app.get('/billing-portal', async (req, res) => {
+  if (!STRIPE_SECRET) {
+    return res.status(501).json({ error: 'Stripe not configured' });
+  }
+  const customer_id = req.query.customer_id;
+  if (!customer_id) return res.status(400).json({ error: 'customer_id required' });
+  try {
+    const Stripe = require('stripe');
+    const stripe = Stripe(STRIPE_SECRET);
+    const session = await stripe.billingPortal.sessions.create({ customer: customer_id, return_url: BASE_URL.replace(/\/$/,'/') });
+    return res.json({ ok: true, url: session.url });
+  } catch (e) {
+    console.error('Stripe billing-portal error', e);
+    return res.status(500).json({ error: 'Stripe error', detail: e.message });
+  }
+});
+
+
 // simple structured logging middleware for analytics
 app.use((req,res,next)=>{
   const start = Date.now();
