@@ -126,8 +126,13 @@ app.post('/signup', async (req, res) => {
 });
 
 app.post('/publish', (req, res) => {
+  // Harden publish auth: require ADMIN_TOKEN env to be set and non-empty
+  if (!process.env.ADMIN_TOKEN || process.env.ADMIN_TOKEN.trim() === '') {
+    console.error('Publish attempt but ADMIN_TOKEN is not configured on server');
+    return res.status(500).json({ error: 'Server misconfiguration: ADMIN_TOKEN not set' });
+  }
   const token = req.header('x-admin-token') || req.query.admin_token || req.body.admin_token;
-  if (!token || token !== ADMIN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
   const { error, value } = publishSchema.validate(req.body);
   if (error) return res.status(400).json({ error: error.message });
   const id = uuidv4();
