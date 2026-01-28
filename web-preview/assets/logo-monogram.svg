@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="12" fill="#0F1113"/>
+  <g transform="translate(8 8)">
+    <rect width="48" height="48" rx="10" fill="#101214"/>
+    <text x="24" y="32" text-anchor="middle" font-family="Inter, system-ui, -apple-system, Arial" font-weight="700" font-size="20" fill="#5fb3c8">TC</text>
+  </g>
+</svg>

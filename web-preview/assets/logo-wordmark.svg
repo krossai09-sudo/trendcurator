@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="48" viewBox="0 0 240 48" fill="none">
+  <defs>
+    <style>
+      .word{font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial; font-weight:700; font-size:20px;}
+    </style>
+  </defs>
+  <text x="0" y="34" class="word" fill="#e9edf0">trendcurator</text>
+  <circle cx="198" cy="18" r="6" fill="#5fb3c8" />
+</svg>
