@@ -184,6 +184,11 @@ app.post('/create-checkout-session', async (req, res) => {
   if (!STRIPE_SECRET || !STRIPE_PRICE_ID) {
     return res.status(501).json({ error: 'Stripe not configured (STRIPE_SECRET or STRIPE_PRICE_ID missing)' });
   }
+  // minimal validation
+  const { success_url, cancel_url, customer_email } = req.body || {};
+  if (!success_url || !cancel_url) {
+    return res.status(400).json({ error: 'success_url and cancel_url are required in body' });
+  }
   try {
     const body = req.body || {};
     // Minimal payload: { success_url, cancel_url, customer_email }
