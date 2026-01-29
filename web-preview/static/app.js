@@ -234,11 +234,20 @@ window.addEventListener('DOMContentLoaded', ()=>{
       if(!email){ proMsg.textContent='Please enter a valid email.'; return; }
       const btn = proForm.querySelector('button'); btn.disabled=true; btn.textContent='Joining...';
       try{
-        const res = await fetch('/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,source:'pro_waitlist',utm:''})});
+        // Create Stripe Checkout session via backend and redirect
+        const payload = { success_url: 'https://trendcurator.org/?success=1', cancel_url: 'https://trendcurator.org/?cancel=1', customer_email: email };
+        const res = await fetch('/create-checkout-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const data = await res.json().catch(()=>null);
-        console.log('[PRO_SIGNUP] response', res.status, data);
-        if(res.ok && data && data.ok){ proMsg.textContent='Thanks — you are on the Pro waitlist.'; document.getElementById('pro-email').value=''; console.log('[PRO_SIGNUP] success', data); sessionStorage.setItem('trendcurator_just_signed_up','1'); await refreshLatestPick(); revealAndScrollHero(); }
-        else { proMsg.textContent = (data && data.error) ? data.error : 'Signup failed — try again later.'; }
+        if(res.ok && data && data.url){
+          window.location = data.url; // redirect to Stripe Checkout
+          return;
+        }
+        // fallback to waitlist signup if checkout not available
+        console.log('[PRO_SIGNUP] checkout unavailable, fallback to waitlist', res.status, data);
+        const sigRes = await fetch('/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,source:'pro_waitlist',utm:''})});
+        const sdata = await sigRes.json().catch(()=>null);
+        if(sigRes.ok && sdata && sdata.ok){ proMsg.textContent='Thanks — you are on the Pro waitlist.'; document.getElementById('pro-email').value=''; console.log('[PRO_SIGNUP] success', sdata); sessionStorage.setItem('trendcurator_just_signed_up','1'); await refreshLatestPick(); revealAndScrollHero(); }
+        else { proMsg.textContent = (sdata && sdata.error) ? sdata.error : 'Signup failed — try again later.'; }
       }catch(err){ console.error('[PRO_SIGNUP] network error', err); proMsg.textContent='Network error — try again.'; }
       finally{ btn.disabled=false; btn.textContent='Join'; }
     });
