@@ -286,6 +286,57 @@ app.get('/go/:slug', (req, res) => {
   });
 });
 
+// Admin API: protected by X-Admin-Token header (must match ADMIN_TOKEN)
+function checkAdmin(req,res,next){
+  const token = req.header('x-admin-token') || req.query.admin_token || req.body.admin_token;
+  if(!process.env.ADMIN_TOKEN || process.env.ADMIN_TOKEN.trim()==='') return res.status(500).json({ error: 'Server misconfiguration: ADMIN_TOKEN not set' });
+  if(!token || token !== process.env.ADMIN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
+  return next();
+}
+
+// List links with referencing issues
+app.get('/admin/api/links', checkAdmin, (req,res)=>{
+  db.all('SELECT id,slug,default_url,url_uk,url_us,url_eu,url_row,ts FROM links ORDER BY ts DESC', (err,rows)=>{
+    if(err) return res.status(500).json({ error: 'Database error' });
+    if(!rows) rows = [];
+    // for each link, find referencing issues
+    const tasks = rows.map(r=>new Promise((resolve)=>{
+      db.all('SELECT id,title FROM issues WHERE link = ?', [ `${BASE_URL_ENV || (process.env.RENDER ? DEFAULT_RENDER_BASE : 'https://trendcurator.org')}/go/` + r.slug ], (e,issues)=>{
+        if(e) return resolve(Object.assign({}, r, { issues: [] }));
+        return resolve(Object.assign({}, r, { issues: issues || [] }));
+      });
+    }));
+    Promise.all(tasks).then(results=>res.json(results)).catch(()=>res.status(500).json({ error: 'Database error' }));
+  });
+});
+
+app.post('/admin/api/links', checkAdmin, express.json(), (req,res)=>{
+  const { slug, default_url, url_uk, url_us, url_eu, url_row } = req.body || {};
+  if(!slug || !default_url) return res.status(400).json({ error: 'slug and default_url required' });
+  const id = uuidv4(); const ts = Date.now();
+  db.run('INSERT INTO links (id,slug,default_url,url_uk,url_us,url_eu,url_row,ts) VALUES (?,?,?,?,?,?,?,?)', [id,slug,default_url,url_uk||null,url_us||null,url_eu||null,url_row||null,ts], function(err){
+    if(err) return res.status(500).json({ error: 'Database error', detail: err.message });
+    return res.json({ ok:true, id, slug, go: `${BASE_URL_ENV || (process.env.RENDER ? DEFAULT_RENDER_BASE : 'https://trendcurator.org')}/go/${slug}` });
+  });
+});
+
+app.put('/admin/api/links/:slug', checkAdmin, express.json(), (req,res)=>{
+  const slug = req.params.slug;
+  const { default_url, url_uk, url_us, url_eu, url_row } = req.body || {};
+  db.run('UPDATE links SET default_url=?,url_uk=?,url_us=?,url_eu=?,url_row=? WHERE slug=?', [default_url||null,url_uk||null,url_us||null,url_eu||null,url_row||null,slug], function(err){
+    if(err) return res.status(500).json({ error: 'Database error', detail: err.message });
+    return res.json({ ok:true, slug });
+  });
+});
+
+app.delete('/admin/api/links/:slug', checkAdmin, (req,res)=>{
+  const slug = req.params.slug;
+  db.run('DELETE FROM links WHERE slug = ?', [slug], function(err){
+    if(err) return res.status(500).json({ error: 'Database error' });
+    return res.json({ ok:true, slug });
+  });
+});
+
 // Stripe scaffold: create checkout session, webhook, billing portal
 const STRIPE_SECRET = process.env.STRIPE_SECRET;
 const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID; // price for Pro

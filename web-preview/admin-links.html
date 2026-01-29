@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>TrendCurator — Admin Links</title>
+  <style>body{font-family:Inter,system-ui,Arial,sans-serif;padding:20px;background:#f7f7f8;color:#111}table{width:100%;border-collapse:collapse}th,td{padding:8px;border:1px solid #ddd}input[type=text]{width:100%;padding:6px}</style>
+</head>
+<body>
+  <h1>Admin — Manage Go Links</h1>
+  <p>Use your admin token to manage redirect slugs. Tokens are sent via X-Admin-Token header (stored in sessionStorage).</p>
+  <div>
+    <label>Admin token: <input id="admin-token" type="text" placeholder="Enter admin token"></label>
+    <button id="save-token">Save</button>
+  </div>
+  <hr>
+  <div id="status"></div>
+  <h2>Existing links</h2>
+  <table id="links-table"><thead><tr><th>Slug</th><th>Default URL</th><th>UK</th><th>US</th><th>EU</th><th>ROW</th><th>Referenced Issues</th><th>Actions</th></tr></thead><tbody></tbody></table>
+  <h3>Create new link</h3>
+  <form id="new-link-form">
+    <label>Slug: <input id="new-slug" type="text"></label><br>
+    <label>Default URL: <input id="new-default" type="text"></label><br>
+    <label>UK URL: <input id="new-uk" type="text"></label><br>
+    <label>US URL: <input id="new-us" type="text"></label><br>
+    <label>EU URL: <input id="new-eu" type="text"></label><br>
+    <label>ROW URL: <input id="new-row" type="text"></label><br>
+    <button type="submit">Create</button>
+  </form>
+
+  <script src="/static/admin-links.js" defer></script>
+</body>
+</html>
