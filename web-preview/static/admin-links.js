@@ -15,12 +15,13 @@ async function loadLinks(){
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${row.slug}</td>
       <td><input data-slug="${row.slug}" data-field="default_url" value="${row.default_url||''}"></td>
+      <td><input data-slug="${row.slug}" data-field="affiliate_url" value="${row.affiliate_url||''}"></td>
       <td><input data-slug="${row.slug}" data-field="url_uk" value="${row.url_uk||''}"></td>
       <td><input data-slug="${row.slug}" data-field="url_us" value="${row.url_us||''}"></td>
       <td><input data-slug="${row.slug}" data-field="url_eu" value="${row.url_eu||''}"></td>
       <td><input data-slug="${row.slug}" data-field="url_row" value="${row.url_row||''}"></td>
       <td>${(row.issues||[]).map(i=>`<a href="/archive.html#${i.id}" target="_blank">${i.title}</a>`).join('<br>')}</td>
-      <td><button class="save" data-slug="${row.slug}">Save</button> <button class="del" data-slug="${row.slug}">Delete</button></td>`;
+      <td><button class="save" data-slug="${row.slug}">Save</button> <button class="del" data-slug="${row.slug}">Delete</button> <button class="clicks" data-slug="${row.slug}">Clicks</button></td>`;
     tbody.appendChild(tr);
   });
   document.querySelectorAll('button.save').forEach(b=>b.addEventListener('click', async (ev)=>{

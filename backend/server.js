@@ -57,11 +57,23 @@ db.serialize(() => {
     id TEXT PRIMARY KEY,
     slug TEXT UNIQUE NOT NULL,
     default_url TEXT NOT NULL,
+    affiliate_url TEXT,
     url_uk TEXT,
     url_us TEXT,
     url_eu TEXT,
     url_row TEXT,
     ts INTEGER NOT NULL
+  )`);
+
+  // clicks table for tracking redirects
+  db.run(`CREATE TABLE IF NOT EXISTS clicks (
+    id TEXT PRIMARY KEY,
+    link_id TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    ip TEXT,
+    ua TEXT,
+    country TEXT
   )`);
 });
 
@@ -216,8 +228,8 @@ app.post('/publish', (req, res) => {
         if(err) return cb(err);
         if(row) return cb(null, false); // exists
         // insert link record
-        const lstmt = db.prepare('INSERT INTO links (id,slug,default_url,url_uk,url_us,url_eu,url_row,ts) VALUES (?,?,?,?,?,?,?,?)');
-        lstmt.run(lid, candidate, value.link, null, null, null, null, ts, (lerr)=>{
+        const lstmt = db.prepare('INSERT INTO links (id,slug,default_url,affiliate_url,url_uk,url_us,url_eu,url_row,ts) VALUES (?,?,?,?,?,?,?,?,?)');
+        lstmt.run(lid, candidate, value.link, (value.affiliate_url || null), null, null, null, null, ts, (lerr)=>{
           if(lerr) return cb(lerr);
           // compute public go link
           const baseUrl = BASE_URL_ENV || (process.env.RENDER ? DEFAULT_RENDER_BASE : `https://${process.env.HOSTNAME||'trendcurator.org'}`);
@@ -279,9 +291,20 @@ app.get('/go/:slug', (req, res) => {
   db.get('SELECT default_url,url_uk,url_us,url_eu,url_row FROM links WHERE slug = ?', [slug], (err,row)=>{
     if(err){ console.error('DB error on redirect', err); return res.redirect(302, '/'); }
     if(!row) return res.status(404).send('Not found');
-    // For now, always use default_url. Later: use Cloudflare country header to choose.
-    const dest = row.default_url;
+    // Prefer affiliate_url when present, fallback to default_url
+    const dest = row.affiliate_url || row.default_url;
     if(!dest) return res.redirect(302, '/');
+    // Log click (async, non-blocking)
+    (async ()=>{
+      try{
+        const cid = uuidv4();
+        const ts = Date.now();
+        const ip = req.get('cf-connecting-ip') || req.get('x-forwarded-for') || req.ip || null;
+        const ua = req.get('user-agent') || null;
+        const country = req.get('cf-ipcountry') || req.get('x-country') || null;
+        db.run('INSERT INTO clicks (id,link_id,slug,ts,ip,ua,country) VALUES (?,?,?,?,?,?,?)', [cid, row.id, slug, ts, ip, ua, country], ()=>{});
+      }catch(e){ console.error('Failed to log click', e); }
+    })();
     return res.redirect(302, dest);
   });
 });
@@ -307,6 +330,15 @@ app.get('/admin/api/links', checkAdmin, (req,res)=>{
       });
     }));
     Promise.all(tasks).then(results=>res.json(results)).catch(()=>res.status(500).json({ error: 'Database error' }));
+  });
+});
+
+// Admin: get recent clicks for a slug
+app.get('/admin/api/links/:slug/clicks', checkAdmin, (req,res)=>{
+  const slug = req.params.slug;
+  db.all('SELECT id,ts,ip,ua,country FROM clicks WHERE slug = ? ORDER BY ts DESC LIMIT 200', [slug], (err,rows)=>{
+    if(err) return res.status(500).json({ error: 'Database error' });
+    return res.json(rows||[]);
   });
 });
 
