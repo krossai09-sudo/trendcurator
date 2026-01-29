@@ -89,26 +89,31 @@
 
     <div class="card">
       <div class="hero-row">
-        <div class="hero">This week's pick</div>
-        <div class="meta">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <div>
-              <div style="font-weight:800;font-size:18px">Insulated Stainless Bottle — Clean Edition</div>
-              <div class="muted">Selected for durability, shareability and accessory potential — Recommender score: 86</div>
-            </div>
-            <a class="cta" href="#pricing">Get early access</a>
-          </div>
-
-          <p class="small" style="margin-top:10px">Why we pick it: visually strong on dark creative, steady demand across platforms, high retention opportunity through accessories and replenishment. Delivered: a single focused pick, short reasoning, and a subtle buy/subscribe option.</p>
-
-          <form class="inline" action="#signup">
-            <input type="email" placeholder="email@you.com" aria-label="email">
-            <button class="cta" type="submit">Join — it's free</button>
-          </form>
-          <div id="signup-msg" class="small muted" role="status" aria-live="polite" style="margin-top:8px;display:block;visibility:visible"></div>
-
+        <div class="hero" aria-hidden="true">
+      <!-- reduced height hero to avoid excessive empty space on mobile -->
+      <div style="width:100%;height:120px;background:linear-gradient(180deg,#0a0b0c,#0d0e10);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#7f888e;font-weight:600">Product hero</div>
+    </div>
+    <div class="meta">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:800;font-size:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Insulated Stainless Bottle — Clean Edition</div>
+          <div class="muted" style="margin-top:6px">Selected for durability, shareability and accessory potential</div>
         </div>
+        <a class="cta" href="#pricing" style="margin-left:12px;white-space:nowrap">Get early access</a>
       </div>
+
+      <p class="small" style="margin-top:12px;line-height:1.6;color:var(--muted)">Why we pick it: visually strong on dark creative, steady demand across platforms, high retention opportunity through accessories and replenishment. Delivered: a single focused pick, short reasoning, and a subtle buy/subscribe option.</p>
+
+      <form class="inline" action="#signup">
+        <input id="signup-email" type="email" placeholder="email@you.com" aria-label="email" autocomplete="email">
+        <button class="cta" type="submit">Join — it's free</button>
+      </form>
+      <div id="signup-msg" class="small muted" role="status" aria-live="polite" style="margin-top:12px;display:block;visibility:visible"></div>
+
+      <div style="margin-top:12px;color:var(--muted);font-size:14px">Confidence: <strong style="color:var(--accent);">High</strong> &nbsp; • &nbsp; Recommender score: <span style="font-weight:700">86</span></div>
+
+    </div>
+  </div>
 
       <div class="features" style="margin-top:16px">
         <div class="feature"><strong>Curated</strong><div class="muted">Human-reviewed picks, not algorithmic noise.</div></div>
@@ -211,118 +216,14 @@
     </footer>
   </div>
 
+  <!-- Mobile sticky CTA -->
+  <div id="mobile-cta" style="display:none;position:fixed;left:12px;right:12px;bottom:env(safe-area-inset-bottom,12px);z-index:999;">
+    <button id="mobile-cta-btn" class="cta" style="width:100%;padding:14px;border-radius:12px;font-size:16px;">Join — it's free</button>
+  </div>
+
   <script src="/static/app.js" defer></script>
 </body>
-</html>
-  const params = new URLSearchParams(window.location.search);
-  const out = {};
-  for(const [k,v] of params.entries()){
-    if(k.startsWith('utm_')) out.utm = out.utm ? out.utm + '&' + k + '=' + v : `${k}=${v}`;
-    if(k==='source') out.source = v;
-  }
-  return out;
-}
-
-// Signup form handling
-const signupForm = document.querySelector('form[action="#signup"]');
-const signupMsgElem = document.getElementById('signup-msg');
-if(signupForm){
-  signupForm.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    const emailInput = signupForm.querySelector('input[type="email"]');
-    const btn = signupForm.querySelector('button');
-    const msgAreaId = 'signup-msg';
-    // ensure visible
-    let msg = document.getElementById(msgAreaId);
-    if(!msg){ msg = document.createElement('div'); msg.id = msgAreaId; msg.className='small muted'; signupForm.parentNode.appendChild(msg); }
-
-    const email = emailInput.value.trim();
-    if(!email){ msg.textContent='Please enter a valid email.'; msg.style.display='block'; console.log('[SIGNUP] validation failed'); return; }
-    const params = parseUrlParams();
-    btn.disabled = true; btn.textContent='Joining...';
-    try{
-      const res = await fetch('/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,source:params.source||'',utm:params.utm||''})});
-      const data = await res.json().catch(()=>null);
-      console.log('[SIGNUP] response', res.status, data);
-      if(res.ok && data && data.ok){
-        msg.textContent = 'Thanks — check your inbox for confirmation (or keep an eye on our weekly digests).';
-        emailInput.value='';
-        console.log('[SIGNUP] success', data);
-        // mark session so refresh shows welcome
-        sessionStorage.setItem('trendcurator_just_signed_up', '1');
-        // refresh latest issue, reveal and scroll to it
-        await refreshLatestPick();
-        revealAndScrollHero();
-      } else if(data && data.error && data.error.toLowerCase().includes('exists')){
-        msg.textContent = 'You are already subscribed — thanks!';
-      } else {
-        msg.textContent = (data && data.error) ? data.error : 'Signup failed — try again later.';
-      }
-    }catch(err){
-      console.error('[SIGNUP] network error', err);
-      msg.textContent = 'Network error — try again.';
-    } finally {
-      msg.style.display='block';
-      btn.disabled = false; btn.textContent='Join — it\'s free';
-    }
-  });
-}
-
-// Admin panel: prompt for token, store in sessionStorage, attach to publish calls
-function ensureAdminToken(){
-  let token = sessionStorage.getItem('tc_admin_token');
-  if(!token){
-    token = prompt('Enter ADMIN_TOKEN (session only)');
-    if(token) sessionStorage.setItem('tc_admin_token', token);
-  }
-  return token;
-}
-
-async function savePick(e){
-  e.preventDefault();
-  const title=document.getElementById('pick-title').value.trim();
-  const reason=document.getElementById('pick-reason').value.trim();
-  if(!title||!reason){document.getElementById('editor-msg').textContent='Please provide title and reason.';return false}
-
-  const adminToken = ensureAdminToken();
-  if(!adminToken){ document.getElementById('editor-msg').textContent='Publish cancelled: admin token required.'; return false }
-
-  const payload = { title, description: title, reason, link: '', score: 80 };
-  const btn = e.submitter || document.querySelector('#editor button');
-  btn.disabled = true; btn.textContent='Publishing...';
-  try{
-    const res = await fetch('/publish',{method:'POST',headers:{'Content-Type':'application/json','X-Admin-Token':adminToken},body:JSON.stringify(payload)});
-    const data = await res.json();
-    if(res.ok && data.ok){
-      document.getElementById('editor-msg').textContent = 'Published — issue id: ' + data.id;
-      // refresh latest pick display
-      await refreshLatestPick();
-    } else {
-      document.getElementById('editor-msg').textContent = data.error || 'Publish failed';
-      if(res.status===401) sessionStorage.removeItem('tc_admin_token');
-    }
-  }catch(err){
-    console.error(err);
-    document.getElementById('editor-msg').textContent = 'Network error during publish.';
-  } finally{
-    btn.disabled = false; btn.textContent='Save (admin)';
-  }
-  return false;
-}
-
-let __latest_issue = null;
-
-// Refresh latest pick display from GET /issues -> first item
-async function refreshLatestPick(){
-  try{
-    const res = await fetch('/issues');
-    if(!res.ok) return;
-    const issues = await res.json();
-    if(issues && issues.length){
-      const latest = issues[0];
-      __latest_issue = latest;
-      // Update hero and meta
-      const hero = document.querySelector('.hero');
+</html>      const hero = document.querySelector('.hero');
       if(hero) hero.textContent = latest.title;
       const titleEl = document.querySelector('.meta div div');
       if(titleEl) titleEl.textContent = latest.title;

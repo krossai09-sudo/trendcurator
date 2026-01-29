@@ -1,0 +1,10 @@
+/* Mobile-specific helpers for sticky CTA and improved spacing */
+@media (max-width:760px){
+  #mobile-cta{display:block}
+  .hero{height:auto}
+  .card{padding-bottom:72px}
+}
+
+input[type=email]{height:44px;padding:12px;border-radius:10px}
+
+.btn-primary-full{display:block;width:100%;padding:14px;border-radius:12px;background:var(--accent);color:#052027;font-weight:700;text-align:center}
