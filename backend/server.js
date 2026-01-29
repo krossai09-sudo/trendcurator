@@ -42,6 +42,14 @@ db.serialize(() => {
     utm TEXT,
     ts INTEGER NOT NULL
   )`);
+
+  // Stripe webhook events processed (idempotency)
+  db.run(`CREATE TABLE IF NOT EXISTS stripe_events (
+    id TEXT PRIMARY KEY,
+    type TEXT,
+    created INTEGER,
+    received_ts INTEGER
+  )`);
   db.run(`CREATE TABLE IF NOT EXISTS issues (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
