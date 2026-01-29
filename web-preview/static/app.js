@@ -214,6 +214,20 @@ window.addEventListener('DOMContentLoaded', ()=>{
   const showAdmin = params.get('admin') === '1';
   if(showAdmin) renderAdminPanel();
 
+  // Handle Stripe redirect statuses
+  const pageNoticeId = 'page-notice';
+  function showPageNotice(text){
+    let el = document.getElementById(pageNoticeId);
+    if(!el){ el = document.createElement('div'); el.id = pageNoticeId; el.style.position='fixed'; el.style.top='12px'; el.style.right='12px'; el.style.background='#052027'; el.style.color='#cdeff3'; el.style.padding='12px 16px'; el.style.borderRadius='10px'; el.style.zIndex=9999; document.body.appendChild(el); }
+    el.textContent = text;
+    setTimeout(()=>{ try{ el.style.transition='opacity 0.6s'; el.style.opacity=0.95; setTimeout(()=>{ el.style.opacity=1; },100); }catch(e){} },10);
+  }
+  if(params.get('success')==='1'){
+    showPageNotice('Payment successful — welcome to Pro (we will confirm access after webhook verification).');
+  } else if(params.get('cancel')==='1'){
+    showPageNotice('Checkout cancelled.');
+  }
+
   // Start free: scroll to signup and focus
   const startBtn = document.getElementById('start-free');
   if(startBtn){ startBtn.addEventListener('click', (ev)=>{ ev.preventDefault(); const input = document.querySelector('form[action="#signup"] input[type="email"]'); input && input.scrollIntoView({behavior:'smooth',block:'center'}); input && input.focus(); }); }
