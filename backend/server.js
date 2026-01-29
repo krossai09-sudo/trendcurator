@@ -40,13 +40,7 @@ db.serialize(() => {
     email TEXT NOT NULL,
     source TEXT,
     utm TEXT,
-    ts INTEGER NOT NULL,
-    pro INTEGER DEFAULT 0,
-    stripe_customer_id TEXT,
-    stripe_subscription_id TEXT,
-    stripe_status TEXT,
-    current_period_end INTEGER,
-    stripe_updated_ts INTEGER
+    ts INTEGER NOT NULL
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS issues (
     id TEXT PRIMARY KEY,
@@ -63,31 +57,11 @@ db.serialize(() => {
     id TEXT PRIMARY KEY,
     slug TEXT UNIQUE NOT NULL,
     default_url TEXT NOT NULL,
-    affiliate_url TEXT,
     url_uk TEXT,
     url_us TEXT,
     url_eu TEXT,
     url_row TEXT,
     ts INTEGER NOT NULL
-  )`);
-
-  // clicks table for tracking redirects
-  db.run(`CREATE TABLE IF NOT EXISTS clicks (
-    id TEXT PRIMARY KEY,
-    link_id TEXT NOT NULL,
-    slug TEXT NOT NULL,
-    ts INTEGER NOT NULL,
-    ip TEXT,
-    ua TEXT,
-    country TEXT
-  )`);
-
-  // Stripe webhook events processed (idempotency)
-  db.run(`CREATE TABLE IF NOT EXISTS stripe_events (
-    id TEXT PRIMARY KEY,
-    type TEXT,
-    created INTEGER,
-    received_ts INTEGER
   )`);
 });
 
@@ -134,102 +108,40 @@ const publishSchema = Joi.object({
 });
 
 // Routes
-// Outgoing emails queue table
-// Fields: id, to_email, subject, body_html, attempts, last_error, status, ts_created, ts_sent
-
-// enqueue email helper
-function enqueueEmail(to_email, subject, body_html){
-  const eid = uuidv4();
-  const ts = Date.now();
-  const stmt = db.prepare('INSERT INTO outgoing_emails (id,to_email,subject,body_html,attempts,last_error,status,ts_created,ts_sent) VALUES (?,?,?,?,?,?,?,?,?)');
-  stmt.run(eid, to_email, subject, body_html, 0, null, 'queued', ts, null, (err)=>{
-    if(err) console.error('Failed to enqueue email', err);
-  });
-  return eid;
-}
-
-// Worker: attempt to send an email via Resend (HTTP API)
-async function attemptSendEmail(emailRow){
-  const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  const FROM = process.env.EMAIL_FROM || `TrendCurator <no-reply@trendcurator.org>`;
-  if(!RESEND_API_KEY){
-    throw new Error('Resend API key not configured');
+// Helper: send welcome email (Mailgun)
+async function sendWelcomeEmail(toEmail){
+  const MG_API_KEY = process.env.MAILGUN_API_KEY;
+  const MG_DOMAIN = process.env.MAILGUN_DOMAIN;
+  const FROM = process.env.EMAIL_FROM || `TrendCurator <welcome@${MG_DOMAIN || 'example.com'}>`;
+  if(!MG_API_KEY || !MG_DOMAIN){
+    console.warn('Mailgun not configured (MAILGUN_API_KEY or MAILGUN_DOMAIN missing). Signup will be accepted but no welcome email sent.');
+    return { ok: false, reason: 'mailgun_not_configured' };
   }
-  const payload = { from: FROM, to: [emailRow.to_email], subject: emailRow.subject, html: emailRow.body_html };
-  const res = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-  const text = await res.text();
-  if(!res.ok){
-    const err = new Error('Resend send failed: ' + res.status + ' ' + text);
-    err.status = res.status; err.body = text;
-    throw err;
-  }
-  return JSON.parse(text || '{}');
-}
-
-// Worker runner (called periodically or via admin endpoint)
-async function processEmailQueue(limit=10){
-  return new Promise((resolve)=>{
-    db.all("SELECT id,to_email,subject,body_html,attempts,last_error FROM outgoing_emails WHERE status IN ('queued','failed') ORDER BY ts_created ASC LIMIT ?", [limit], async (err, rows)=>{
-      if(err || !rows) return resolve({ ok:false, error: err ? err.message : 'no rows' });
-      const results = [];
-      for(const r of rows){
-        try{
-          // exponential backoff: skip retries where attempts >0 and last attempt was recent
-          if(r.attempts>0){
-            // simple backoff: wait attempts^2 * 1000 ms since last error (not storing last attempt time for simplicity)
-          }
-          await attemptSendEmail(r);
-          const tsent = Date.now();
-          db.run('UPDATE outgoing_emails SET status=?,attempts=attempts+1,ts_sent=?,last_error=NULL WHERE id=?', ['sent', tsent, r.id]);
-          results.push({ id: r.id, status: 'sent' });
-        }catch(e){
-          console.error('Email send attempt failed for', r.id, e.message || e);
-          const attempts = (r.attempts || 0) + 1;
-          const last_error = (e.message||String(e)).slice(0,1000);
-          const status = attempts >= 5 ? 'permanent_failed' : 'failed';
-          db.run('UPDATE outgoing_emails SET status=?,attempts=?,last_error=? WHERE id=?', [status, attempts, last_error, r.id]);
-          results.push({ id: r.id, status });
-        }
-      }
-      resolve({ ok:true, results });
-    });
-  });
-}
-
-// Admin endpoints for queue inspection
-app.get('/admin/api/email-queue', checkAdmin, (req,res)=>{
-  db.all('SELECT id,to_email,subject,attempts,last_error,status,ts_created,ts_sent FROM outgoing_emails ORDER BY ts_created DESC LIMIT 200', (err,rows)=>{
-    if(err) return res.status(500).json({ error: 'Database error' });
-    return res.json(rows||[]);
-  });
-});
-
-app.post('/admin/api/email-queue/process', checkAdmin, async (req,res)=>{
-  const result = await processEmailQueue(20);
-  return res.json(result);
-});
-
-app.post('/admin/api/email-queue/:id/retry', checkAdmin, (req,res)=>{
-  const id = req.params.id;
-  db.run('UPDATE outgoing_emails SET status=?,attempts=? WHERE id=?', ['queued', 0, id], function(err){
-    if(err) return res.status(500).json({ error: 'Database error' });
-    return res.json({ ok:true, id });
-  });
-});
-
-// Helper: send welcome email (enqueue for Resend)
-function sendWelcomeEmail(toEmail){
-  const FROM = process.env.EMAIL_FROM || `TrendCurator <no-reply@trendcurator.org>`;
-  const subject = 'Welcome to TrendCurator — your first pick is coming';
-  const body = `<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f1113;line-height:1.4">
+  try{
+    const url = `https://api.mailgun.net/v3/${MG_DOMAIN}/messages`;
+    const params = new URLSearchParams();
+    params.append('from', FROM);
+    params.append('to', toEmail);
+    params.append('subject', 'Welcome to TrendCurator — your first pick is coming');
+    params.append('html', `<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f1113;line-height:1.4">
       <h2 style="margin:0 0 8px 0">Welcome — thanks for joining TrendCurator</h2>
       <p style="margin:0 0 12px 0;color:#555">Each week we send one short, human-curated product pick. No spam — unsubscribe any time.</p>
       <p style="margin:0 0 12px 0">If you didn't sign up, ignore this email.</p>
       <p style="margin:0">— TrendCurator</p>
-    </div>`;
-  // enqueue and return id
-  enqueueEmail(toEmail, subject, body);
-  return { ok:true };
+    </div>`);
+
+    const res = await fetch(url, { method: 'POST', headers: { 'Authorization': 'Basic ' + Buffer.from(`api:${MG_API_KEY}`).toString('base64'), 'Content-Type': 'application/x-www-form-urlencoded' }, body: params });
+    const text = await res.text();
+    if(!res.ok){
+      console.error('Mailgun send failed', res.status, text);
+      return { ok: false, status: res.status, body: text };
+    }
+    console.log('Mailgun send success for', toEmail, text.substring(0,200));
+    return { ok: true };
+  }catch(e){
+    console.error('Mailgun send exception', e);
+    return { ok: false, reason: 'exception', error: e.message };
+  }
 }
 
 app.post('/signup', async (req, res) => {
@@ -243,6 +155,7 @@ app.post('/signup', async (req, res) => {
       if(row){
         // friendly response when already subscribed
         console.log(`[SIGNUP] existing email: ${value.email}`);
+        // still attempt to send welcome if desired? skip to avoid duplicates
         return res.status(200).json({ ok: true, id: row.id, message: 'already_subscribed' });
       }
       const id = uuidv4();
@@ -253,11 +166,16 @@ app.post('/signup', async (req, res) => {
         const resp = { ok: true, id };
         console.log(JSON.stringify({event:'signup', email: value.email, source: value.source||'', resp}));
 
-        // Enqueue welcome email (non-blocking)
-        try{
-          sendWelcomeEmail(value.email);
-          console.log('Enqueued welcome email for', value.email);
-        }catch(e){ console.error('Failed to enqueue welcome email', e); }
+        // Attempt to send welcome email, but do not block signup success if email provider missing or fails
+        (async ()=>{
+          const result = await sendWelcomeEmail(value.email).catch(e=>({ ok:false, reason:'exception', error:e.message }));
+          if(result && result.ok){
+            console.log(JSON.stringify({event:'welcome_email_sent', email: value.email}));
+          } else {
+            console.warn(JSON.stringify({event:'welcome_email_failed', email: value.email, detail: result}));
+            // TODO: push to retry queue or mark in DB for retry
+          }
+        })();
 
         return res.json(resp);
       });
@@ -298,8 +216,8 @@ app.post('/publish', (req, res) => {
         if(err) return cb(err);
         if(row) return cb(null, false); // exists
         // insert link record
-        const lstmt = db.prepare('INSERT INTO links (id,slug,default_url,affiliate_url,url_uk,url_us,url_eu,url_row,ts) VALUES (?,?,?,?,?,?,?,?,?)');
-        lstmt.run(lid, candidate, value.link, (value.affiliate_url || null), null, null, null, null, ts, (lerr)=>{
+        const lstmt = db.prepare('INSERT INTO links (id,slug,default_url,url_uk,url_us,url_eu,url_row,ts) VALUES (?,?,?,?,?,?,?,?)');
+        lstmt.run(lid, candidate, value.link, null, null, null, null, ts, (lerr)=>{
           if(lerr) return cb(lerr);
           // compute public go link
           const baseUrl = BASE_URL_ENV || (process.env.RENDER ? DEFAULT_RENDER_BASE : `https://${process.env.HOSTNAME||'trendcurator.org'}`);
@@ -361,81 +279,10 @@ app.get('/go/:slug', (req, res) => {
   db.get('SELECT default_url,url_uk,url_us,url_eu,url_row FROM links WHERE slug = ?', [slug], (err,row)=>{
     if(err){ console.error('DB error on redirect', err); return res.redirect(302, '/'); }
     if(!row) return res.status(404).send('Not found');
-    // Prefer affiliate_url when present, fallback to default_url
-    const dest = row.affiliate_url || row.default_url;
+    // For now, always use default_url. Later: use Cloudflare country header to choose.
+    const dest = row.default_url;
     if(!dest) return res.redirect(302, '/');
-    // Log click (async, non-blocking)
-    (async ()=>{
-      try{
-        const cid = uuidv4();
-        const ts = Date.now();
-        const ip = req.get('cf-connecting-ip') || req.get('x-forwarded-for') || req.ip || null;
-        const ua = req.get('user-agent') || null;
-        const country = req.get('cf-ipcountry') || req.get('x-country') || null;
-        db.run('INSERT INTO clicks (id,link_id,slug,ts,ip,ua,country) VALUES (?,?,?,?,?,?,?)', [cid, row.id, slug, ts, ip, ua, country], ()=>{});
-      }catch(e){ console.error('Failed to log click', e); }
-    })();
     return res.redirect(302, dest);
-  });
-});
-
-// Admin API: protected by X-Admin-Token header (must match ADMIN_TOKEN)
-function checkAdmin(req,res,next){
-  const token = req.header('x-admin-token') || req.query.admin_token || req.body.admin_token;
-  if(!process.env.ADMIN_TOKEN || process.env.ADMIN_TOKEN.trim()==='') return res.status(500).json({ error: 'Server misconfiguration: ADMIN_TOKEN not set' });
-  if(!token || token !== process.env.ADMIN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
-  return next();
-}
-
-// List links with referencing issues
-app.get('/admin/api/links', checkAdmin, (req,res)=>{
-  db.all('SELECT id,slug,default_url,url_uk,url_us,url_eu,url_row,ts FROM links ORDER BY ts DESC', (err,rows)=>{
-    if(err) return res.status(500).json({ error: 'Database error' });
-    if(!rows) rows = [];
-    // for each link, find referencing issues
-    const tasks = rows.map(r=>new Promise((resolve)=>{
-      db.all('SELECT id,title FROM issues WHERE link = ?', [ `${BASE_URL_ENV || (process.env.RENDER ? DEFAULT_RENDER_BASE : 'https://trendcurator.org')}/go/` + r.slug ], (e,issues)=>{
-        if(e) return resolve(Object.assign({}, r, { issues: [] }));
-        return resolve(Object.assign({}, r, { issues: issues || [] }));
-      });
-    }));
-    Promise.all(tasks).then(results=>res.json(results)).catch(()=>res.status(500).json({ error: 'Database error' }));
-  });
-});
-
-// Admin: get recent clicks for a slug
-app.get('/admin/api/links/:slug/clicks', checkAdmin, (req,res)=>{
-  const slug = req.params.slug;
-  db.all('SELECT id,ts,ip,ua,country FROM clicks WHERE slug = ? ORDER BY ts DESC LIMIT 200', [slug], (err,rows)=>{
-    if(err) return res.status(500).json({ error: 'Database error' });
-    return res.json(rows||[]);
-  });
-});
-
-app.post('/admin/api/links', checkAdmin, express.json(), (req,res)=>{
-  const { slug, default_url, url_uk, url_us, url_eu, url_row } = req.body || {};
-  if(!slug || !default_url) return res.status(400).json({ error: 'slug and default_url required' });
-  const id = uuidv4(); const ts = Date.now();
-  db.run('INSERT INTO links (id,slug,default_url,url_uk,url_us,url_eu,url_row,ts) VALUES (?,?,?,?,?,?,?,?)', [id,slug,default_url,url_uk||null,url_us||null,url_eu||null,url_row||null,ts], function(err){
-    if(err) return res.status(500).json({ error: 'Database error', detail: err.message });
-    return res.json({ ok:true, id, slug, go: `${BASE_URL_ENV || (process.env.RENDER ? DEFAULT_RENDER_BASE : 'https://trendcurator.org')}/go/${slug}` });
-  });
-});
-
-app.put('/admin/api/links/:slug', checkAdmin, express.json(), (req,res)=>{
-  const slug = req.params.slug;
-  const { default_url, url_uk, url_us, url_eu, url_row } = req.body || {};
-  db.run('UPDATE links SET default_url=?,url_uk=?,url_us=?,url_eu=?,url_row=? WHERE slug=?', [default_url||null,url_uk||null,url_us||null,url_eu||null,url_row||null,slug], function(err){
-    if(err) return res.status(500).json({ error: 'Database error', detail: err.message });
-    return res.json({ ok:true, slug });
-  });
-});
-
-app.delete('/admin/api/links/:slug', checkAdmin, (req,res)=>{
-  const slug = req.params.slug;
-  db.run('DELETE FROM links WHERE slug = ?', [slug], function(err){
-    if(err) return res.status(500).json({ error: 'Database error' });
-    return res.json({ ok:true, slug });
   });
 });
 
@@ -458,8 +305,7 @@ app.post('/create-checkout-session', async (req, res) => {
     // Minimal payload: { success_url, cancel_url, customer_email }
     const success_url = body.success_url || (BASE_URL.replace(/\/$/,'') + '/');
     const cancel_url = body.cancel_url || (BASE_URL.replace(/\/$/,'') + '/');
-    const customer_email = (body.customer_email || null);
-    const normalizedEmail = customer_email ? String(customer_email).trim().toLowerCase() : null;
+    const customer_email = body.customer_email || null;
     // Lazy require to avoid crash when stripe not installed
     const Stripe = require('stripe');
     const stripe = Stripe(STRIPE_SECRET);
@@ -469,9 +315,7 @@ app.post('/create-checkout-session', async (req, res) => {
       line_items: [{ price: STRIPE_PRICE_ID, quantity: 1 }],
       success_url,
       cancel_url,
-      customer_email: normalizedEmail,
-      client_reference_id: normalizedEmail || undefined,
-      metadata: normalizedEmail ? { subscriber_email: normalizedEmail } : undefined
+      customer_email,
     });
     return res.json({ ok: true, url: session.url, id: session.id });
   } catch (e) {
@@ -497,187 +341,21 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res
     console.error('Webhook signature verification failed.', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
-
-  const obj = event.data && event.data.object;
-
-  // Idempotency: record event.id to avoid double-processing
-  try{
-    const evId = event.id;
-    const evCreated = event.created || Math.floor(Date.now()/1000);
-    db.run('INSERT INTO stripe_events (id,type,created,received_ts) VALUES (?,?,?,?)', [evId, event.type, evCreated, Date.now()], (err)=>{
-      if(err){
-        // unique constraint -> already processed
-        console.log('Stripe webhook dedup: event already processed', event.id);
-        return res.json({ ok:true, deduped:true });
-      }
-      // continue processing below
-      (async ()=>{
-        try{
-          switch(event.type){
-        case 'checkout.session.completed':{
-          const session = obj;
-          const email = (session.customer_details && session.customer_details.email) || session.customer_email || null;
-          const customerId = session.customer || null;
-          const subscriptionId = session.subscription || null; // may be present
-          console.log('stripe webhook: checkout.session.completed for', email, 'customer', customerId, 'subscription', subscriptionId);
-
-          const now = Date.now();
-          const updateSubscriber = (id)=>{
-            db.run('UPDATE subscribers SET pro=1,stripe_customer_id=?,stripe_subscription_id=?,stripe_updated_ts=? WHERE id=?', [customerId, subscriptionId, now, id]);
-          };
-          const insertSubscriber = (emailToUse)=>{
-            const sid = uuidv4();
-            db.run('INSERT INTO subscribers (id,email,ts,pro,stripe_customer_id,stripe_subscription_id,stripe_updated_ts) VALUES (?,?,?,?,?,?,?)', [sid,emailToUse,now,1,customerId,subscriptionId,now]);
-          };
-
-          if(email){
-            // prefer matching by email
-            db.get('SELECT id FROM subscribers WHERE email = ?', [email], async (err,row)=>{
-              if(err) return console.error('DB error updating subscriber on checkout', err);
-              if(row){
-                updateSubscriber(row.id);
-              } else {
-                insertSubscriber(email);
-              }
-
-              // if subscriptionId is present, fetch subscription details to populate status/period
-              try{
-                if(subscriptionId){
-                  const Stripe = require('stripe'); const stripe = Stripe(STRIPE_SECRET);
-                  const sub = await stripe.subscriptions.retrieve(subscriptionId);
-                  const status = sub.status; const current_period_end = sub.current_period_end ? sub.current_period_end * 1000 : null;
-                  db.run('UPDATE subscribers SET stripe_subscription_id=?,stripe_status=?,current_period_end=?,stripe_updated_ts=? WHERE email=?', [subscriptionId, status, current_period_end, Date.now(), email]);
-                }
-              }catch(e){ console.error('Failed to fetch subscription after checkout', e); }
-            });
-          } else if(customerId){
-            // no email on session; try to match by customer id
-            db.get('SELECT id,email FROM subscribers WHERE stripe_customer_id = ?', [customerId], async (err,row)=>{
-              if(err) return console.error('DB error updating subscriber on checkout (by customer)', err);
-              if(row){ updateSubscriber(row.id); }
-              else { /* no subscriber to update */ }
-              if(subscriptionId){
-                try{ const Stripe = require('stripe'); const stripe = Stripe(STRIPE_SECRET); const sub = await stripe.subscriptions.retrieve(subscriptionId); const status = sub.status; const current_period_end = sub.current_period_end ? sub.current_period_end * 1000 : null; db.run('UPDATE subscribers SET stripe_subscription_id=?,stripe_status=?,current_period_end=?,stripe_updated_ts=? WHERE stripe_customer_id=?', [subscriptionId, status, current_period_end, Date.now(), customerId]); }catch(e){ console.error('Failed to fetch subscription after checkout (customerId path)', e); }
-              }
-            });
-          }
-          break;
-        }
-        case 'customer.subscription.created':
-        case 'customer.subscription.updated':{
-          const sub = obj;
-          const customerId = sub.customer;
-          const subId = sub.id;
-          const status = sub.status;
-          const current_period_end = sub.current_period_end ? sub.current_period_end * 1000 : null;
-          const now = Date.now();
-          console.log('stripe webhook: subscription event', subId, status);
-          // Update subscribers by customer id
-          db.get('SELECT id FROM subscribers WHERE stripe_customer_id = ?', [customerId], (err,row)=>{
-            if(err) return console.error('DB error on sub update', err);
-            if(row){
-              db.run('UPDATE subscribers SET pro=?,stripe_subscription_id=?,stripe_status=?,current_period_end=?,stripe_updated_ts=? WHERE id=?', [ (status==='active'?1:0), subId, status, current_period_end, now, row.id ]);
-            } else {
-              // no subscriber found — try to match by email inside sub if present
-              const email = (sub && sub.customer_email) || null;
-              if(email){
-                db.get('SELECT id FROM subscribers WHERE email = ?', [email], (e2,r2)=>{
-                  if(e2) return console.error('DB error on sub update email match', e2);
-                  if(r2){ db.run('UPDATE subscribers SET pro=?,stripe_customer_id=?,stripe_subscription_id=?,stripe_status=?,current_period_end=?,stripe_updated_ts=? WHERE id=?', [ (status==='active'?1:0), customerId, subId, status, current_period_end, now, r2.id ]); }
-                });
-              }
-            }
-          });
-          break;
-        }
-        case 'customer.subscription.deleted':{
-          const sub = obj; const customerId = sub.customer; const subId = sub.id; const status = sub.status || 'canceled'; const now = Date.now();
-          db.get('SELECT id,current_period_end FROM subscribers WHERE stripe_subscription_id = ? OR stripe_customer_id = ?', [subId, customerId], (err,row)=>{
-            if(err) return console.error('DB error on sub deleted', err);
-            if(row){
-              const keepUntil = row.current_period_end || sub.current_period_end ? (row.current_period_end || (sub.current_period_end ? sub.current_period_end*1000 : null)) : null;
-              if(keepUntil && keepUntil > Date.now()){
-                // keep pro until period end
-                db.run('UPDATE subscribers SET stripe_status=?,stripe_updated_ts=? WHERE id=?', [status, now, row.id]);
-                console.log('Webhook:', event.id, event.type, 'keeping pro until period end for subscriber', row.id, 'until', keepUntil);
-              } else {
-                db.run('UPDATE subscribers SET pro=0,stripe_status=?,stripe_updated_ts=? WHERE id=?', [status, now, row.id]);
-                console.log('Webhook:', event.id, event.type, 'revoked pro for subscriber', row.id);
-              }
-            } else {
-              console.log('Webhook:', event.id, event.type, 'no subscriber match for deleted subscription', subId, customerId);
-            }
-          });
-          break;
-        }
-        case 'invoice.payment_failed':{
-          const inv = obj; const customerId = inv.customer; const now = Date.now();
-          db.get('SELECT id,current_period_end FROM subscribers WHERE stripe_customer_id = ?', [customerId], (err,row)=>{
-            if(err) return console.error('DB error on invoice failed', err);
-            if(row){ db.run('UPDATE subscribers SET stripe_status=?,stripe_updated_ts=? WHERE id=?', ['past_due', now, row.id]); console.log('Webhook:', event.id, event.type, 'marked past_due for subscriber', row.id); }
-            else { console.log('Webhook:', event.id, event.type, 'no subscriber match for invoice.payment_failed', customerId); }
-          });
-          break;
-        }
-        default:
-          console.log('Unhandled Stripe event type:', event.type);
-      }
-    }catch(e){ console.error('Error processing webhook', e); }
-  })();
-  res.json({ received: true });
-});
-
-// Admin stripe status endpoint: recent webhook events and recent subscribers (token-protected)
-app.get('/stripe/status', checkAdmin, (req,res)=>{
-  db.all('SELECT id,type,created,received_ts FROM stripe_events ORDER BY received_ts DESC LIMIT 20', (err,events)=>{
-    if(err) return res.status(500).json({ error: 'DB error' });
-    db.all('SELECT email,pro,stripe_status,current_period_end,stripe_customer_id,stripe_subscription_id,stripe_updated_ts FROM subscribers ORDER BY stripe_updated_ts DESC LIMIT 40', (err2,subs)=>{
-      if(err2) return res.status(500).json({ error: 'DB error' });
-      return res.json({ ok:true, events: events||[], subscribers: subs||[] });
-    });
-  });
-});
-
-// Admin grant/revoke endpoints
-app.post('/admin/grant-pro', checkAdmin, express.json(), (req,res)=>{
-  const { email, days } = req.body||{};
-  if(!email) return res.status(400).json({ error: 'email required' });
-  const now = Date.now();
-  const periodDays = Number(days) || 30;
-  const newExpiry = now + periodDays * 24 * 60 * 60 * 1000;
-  db.run('UPDATE subscribers SET pro=1,stripe_status=?,current_period_end=?,stripe_updated_ts=? WHERE email=?', ['manual', newExpiry, now, email], function(err){
-    if(err) return res.status(500).json({ error: 'DB error' });
-    return res.json({ ok:true, email, current_period_end: newExpiry });
-  });
-});
-app.post('/admin/revoke-pro', checkAdmin, express.json(), (req,res)=>{
-  const { email } = req.body||{};
-  if(!email) return res.status(400).json({ error: 'email required' });
-  const now = Date.now();
-  const past = now - 24*60*60*1000;
-  db.run('UPDATE subscribers SET pro=0,stripe_status=?,current_period_end=?,stripe_updated_ts=? WHERE email=?', ['revoked', past, now, email], function(err){
-    if(err) return res.status(500).json({ error: 'DB error' });
-    return res.json({ ok:true, email });
-  });
-});
-
-// Me endpoint (auth by email param for now)
-app.get('/me', (req,res)=>{
-  // For testing only. In production this endpoint should be protected (ADMIN_TOKEN or session-based auth).
-  const allowDev = process.env.ALLOW_ME_ENDPOINT === '1';
-  if(!allowDev && (!req.header('x-admin-token') || req.header('x-admin-token') !== process.env.ADMIN_TOKEN)){
-    return res.status(403).json({ error: 'Forbidden: /me is protected in production' });
+  // Handle event types (skeleton)
+  switch (event.type) {
+    case 'checkout.session.completed':
+      console.log('stripe event: checkout.session.completed', event.data.object.id);
+      break;
+    case 'invoice.payment_succeeded':
+      console.log('stripe event: invoice.payment_succeeded', event.data.object.id);
+      break;
+    case 'customer.subscription.updated':
+      console.log('stripe event: customer.subscription.updated', event.data.object.id);
+      break;
+    default:
+      console.log(`Unhandled Stripe event type: ${event.type}`);
   }
-  const email = (req.query.email || '').trim().toLowerCase();
-  if(!email) return res.status(400).json({ error: 'email required' });
-  db.get('SELECT email,pro,stripe_status,current_period_end,stripe_customer_id,stripe_subscription_id,stripe_updated_ts FROM subscribers WHERE email=?', [email], (err,row)=>{
-    if(err) return res.status(500).json({ error: 'DB error' });
-    if(!row) return res.json({ ok:true, pro:false });
-    // compute pro-on-read
-    const now = Date.now();
-    const isPro = (row.stripe_status && (row.stripe_status==='active' || row.stripe_status==='trialing')) || (row.current_period_end && row.current_period_end > now) || (row.pro && row.stripe_status==='manual');
-    return res.json({ ok:true, email: row.email, pro: !!isPro, stripe_status: row.stripe_status, current_period_end: row.current_period_end, stripe_customer_id: row.stripe_customer_id, stripe_subscription_id: row.stripe_subscription_id });
-  });
+  res.json({ received: true });
 });
 
 // Billing portal redirect (create session)
@@ -731,23 +409,4 @@ app.use('/', express.static(path.join(__dirname, '..', 'web-preview')));
 
 app.listen(PORT, '0.0.0.0', ()=>{
   console.log(`TrendCurator backend listening on http://0.0.0.0:${PORT}`);
-
-  // Optional in-process email worker controlled by env var EMAIL_WORKER
-  const EMAIL_WORKER = process.env.EMAIL_WORKER === '1' || process.env.EMAIL_WORKER === 'true';
-  if(EMAIL_WORKER){
-    console.log('Starting in-process email worker (every 60s)');
-    let workerRunning = false;
-    const tick = async ()=>{
-      if(workerRunning) return; // simple lock
-      workerRunning = true;
-      try{
-        const res = await processEmailQueue(25);
-        if(res && res.ok){ console.log('Email worker processed', res.results.length, 'items'); }
-        else { console.warn('Email worker error', res); }
-      }catch(e){ console.error('Email worker exception', e); }
-      workerRunning = false;
-    };
-    // initial tick after short delay to allow startup
-    setTimeout(()=>{ tick(); setInterval(tick, 60*1000); }, 5000);
-  }
 });
