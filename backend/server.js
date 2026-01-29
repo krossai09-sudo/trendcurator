@@ -495,17 +495,46 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res
           const session = obj;
           const email = (session.customer_details && session.customer_details.email) || session.customer_email || null;
           const customerId = session.customer || null;
-          console.log('stripe webhook: checkout.session.completed for', email, 'customer', customerId);
+          const subscriptionId = session.subscription || null; // may be present
+          console.log('stripe webhook: checkout.session.completed for', email, 'customer', customerId, 'subscription', subscriptionId);
+
+          const now = Date.now();
+          const updateSubscriber = (id)=>{
+            db.run('UPDATE subscribers SET pro=1,stripe_customer_id=?,stripe_subscription_id=?,stripe_updated_ts=? WHERE id=?', [customerId, subscriptionId, now, id]);
+          };
+          const insertSubscriber = (emailToUse)=>{
+            const sid = uuidv4();
+            db.run('INSERT INTO subscribers (id,email,ts,pro,stripe_customer_id,stripe_subscription_id,stripe_updated_ts) VALUES (?,?,?,?,?,?,?)', [sid,emailToUse,now,1,customerId,subscriptionId,now]);
+          };
+
           if(email){
             // prefer matching by email
-            db.get('SELECT id FROM subscribers WHERE email = ?', [email], (err,row)=>{
+            db.get('SELECT id FROM subscribers WHERE email = ?', [email], async (err,row)=>{
               if(err) return console.error('DB error updating subscriber on checkout', err);
-              const now = Date.now();
               if(row){
-                db.run('UPDATE subscribers SET pro=1,stripe_customer_id=?,stripe_updated_ts=? WHERE id=?', [customerId, now, row.id]);
+                updateSubscriber(row.id);
               } else {
-                const sid = uuidv4();
-                db.run('INSERT INTO subscribers (id,email,ts,pro,stripe_customer_id,stripe_updated_ts) VALUES (?,?,?,?,?,?)', [sid,email,now,1,customerId,now]);
+                insertSubscriber(email);
+              }
+
+              // if subscriptionId is present, fetch subscription details to populate status/period
+              try{
+                if(subscriptionId){
+                  const Stripe = require('stripe'); const stripe = Stripe(STRIPE_SECRET);
+                  const sub = await stripe.subscriptions.retrieve(subscriptionId);
+                  const status = sub.status; const current_period_end = sub.current_period_end ? sub.current_period_end * 1000 : null;
+                  db.run('UPDATE subscribers SET stripe_subscription_id=?,stripe_status=?,current_period_end=?,stripe_updated_ts=? WHERE email=?', [subscriptionId, status, current_period_end, Date.now(), email]);
+                }
+              }catch(e){ console.error('Failed to fetch subscription after checkout', e); }
+            });
+          } else if(customerId){
+            // no email on session; try to match by customer id
+            db.get('SELECT id,email FROM subscribers WHERE stripe_customer_id = ?', [customerId], async (err,row)=>{
+              if(err) return console.error('DB error updating subscriber on checkout (by customer)', err);
+              if(row){ updateSubscriber(row.id); }
+              else { /* no subscriber to update */ }
+              if(subscriptionId){
+                try{ const Stripe = require('stripe'); const stripe = Stripe(STRIPE_SECRET); const sub = await stripe.subscriptions.retrieve(subscriptionId); const status = sub.status; const current_period_end = sub.current_period_end ? sub.current_period_end * 1000 : null; db.run('UPDATE subscribers SET stripe_subscription_id=?,stripe_status=?,current_period_end=?,stripe_updated_ts=? WHERE stripe_customer_id=?', [subscriptionId, status, current_period_end, Date.now(), customerId]); }catch(e){ console.error('Failed to fetch subscription after checkout (customerId path)', e); }
               }
             });
           }
