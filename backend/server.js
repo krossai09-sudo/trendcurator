@@ -548,4 +548,23 @@ app.use('/', express.static(path.join(__dirname, '..', 'web-preview')));
 
 app.listen(PORT, '0.0.0.0', ()=>{
   console.log(`TrendCurator backend listening on http://0.0.0.0:${PORT}`);
+
+  // Optional in-process email worker controlled by env var EMAIL_WORKER
+  const EMAIL_WORKER = process.env.EMAIL_WORKER === '1' || process.env.EMAIL_WORKER === 'true';
+  if(EMAIL_WORKER){
+    console.log('Starting in-process email worker (every 60s)');
+    let workerRunning = false;
+    const tick = async ()=>{
+      if(workerRunning) return; // simple lock
+      workerRunning = true;
+      try{
+        const res = await processEmailQueue(25);
+        if(res && res.ok){ console.log('Email worker processed', res.results.length, 'items'); }
+        else { console.warn('Email worker error', res); }
+      }catch(e){ console.error('Email worker exception', e); }
+      workerRunning = false;
+    };
+    // initial tick after short delay to allow startup
+    setTimeout(()=>{ tick(); setInterval(tick, 60*1000); }, 5000);
+  }
 });
