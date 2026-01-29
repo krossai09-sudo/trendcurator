@@ -51,6 +51,18 @@ db.serialize(() => {
     score INTEGER,
     ts INTEGER NOT NULL
   )`);
+
+  // Links table for future georouting / safe redirects
+  db.run(`CREATE TABLE IF NOT EXISTS links (
+    id TEXT PRIMARY KEY,
+    slug TEXT UNIQUE NOT NULL,
+    default_url TEXT NOT NULL,
+    url_uk TEXT,
+    url_us TEXT,
+    url_eu TEXT,
+    url_row TEXT,
+    ts INTEGER NOT NULL
+  )`);
 });
 
 const app = express();
