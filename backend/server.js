@@ -272,6 +272,20 @@ app.get('/health', (req,res)=>{
   res.json({ ok:true, ts: Date.now() });
 });
 
+// Redirect handler for go/:slug
+app.get('/go/:slug', (req, res) => {
+  const slug = req.params.slug;
+  if(!slug) return res.redirect(302, '/');
+  db.get('SELECT default_url,url_uk,url_us,url_eu,url_row FROM links WHERE slug = ?', [slug], (err,row)=>{
+    if(err){ console.error('DB error on redirect', err); return res.redirect(302, '/'); }
+    if(!row) return res.status(404).send('Not found');
+    // For now, always use default_url. Later: use Cloudflare country header to choose.
+    const dest = row.default_url;
+    if(!dest) return res.redirect(302, '/');
+    return res.redirect(302, dest);
+  });
+});
+
 // Stripe scaffold: create checkout session, webhook, billing portal
 const STRIPE_SECRET = process.env.STRIPE_SECRET;
 const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID; // price for Pro
