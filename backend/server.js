@@ -40,7 +40,13 @@ db.serialize(() => {
     email TEXT NOT NULL,
     source TEXT,
     utm TEXT,
-    ts INTEGER NOT NULL
+    ts INTEGER NOT NULL,
+    pro INTEGER DEFAULT 0,
+    stripe_customer_id TEXT,
+    stripe_subscription_id TEXT,
+    stripe_status TEXT,
+    current_period_end INTEGER,
+    stripe_updated_ts INTEGER
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS issues (
     id TEXT PRIMARY KEY,
@@ -480,20 +486,87 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res
     console.error('Webhook signature verification failed.', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
-  // Handle event types (skeleton)
-  switch (event.type) {
-    case 'checkout.session.completed':
-      console.log('stripe event: checkout.session.completed', event.data.object.id);
-      break;
-    case 'invoice.payment_succeeded':
-      console.log('stripe event: invoice.payment_succeeded', event.data.object.id);
-      break;
-    case 'customer.subscription.updated':
-      console.log('stripe event: customer.subscription.updated', event.data.object.id);
-      break;
-    default:
-      console.log(`Unhandled Stripe event type: ${event.type}`);
-  }
+
+  const obj = event.data && event.data.object;
+  (async ()=>{
+    try{
+      switch(event.type){
+        case 'checkout.session.completed':{
+          const session = obj;
+          const email = (session.customer_details && session.customer_details.email) || session.customer_email || null;
+          const customerId = session.customer || null;
+          console.log('stripe webhook: checkout.session.completed for', email, 'customer', customerId);
+          if(email){
+            // prefer matching by email
+            db.get('SELECT id FROM subscribers WHERE email = ?', [email], (err,row)=>{
+              if(err) return console.error('DB error updating subscriber on checkout', err);
+              const now = Date.now();
+              if(row){
+                db.run('UPDATE subscribers SET pro=1,stripe_customer_id=?,stripe_updated_ts=? WHERE id=?', [customerId, now, row.id]);
+              } else {
+                const sid = uuidv4();
+                db.run('INSERT INTO subscribers (id,email,ts,pro,stripe_customer_id,stripe_updated_ts) VALUES (?,?,?,?,?,?)', [sid,email,now,1,customerId,now]);
+              }
+            });
+          }
+          break;
+        }
+        case 'customer.subscription.created':
+        case 'customer.subscription.updated':{
+          const sub = obj;
+          const customerId = sub.customer;
+          const subId = sub.id;
+          const status = sub.status;
+          const current_period_end = sub.current_period_end ? sub.current_period_end * 1000 : null;
+          const now = Date.now();
+          console.log('stripe webhook: subscription event', subId, status);
+          // Update subscribers by customer id
+          db.get('SELECT id FROM subscribers WHERE stripe_customer_id = ?', [customerId], (err,row)=>{
+            if(err) return console.error('DB error on sub update', err);
+            if(row){
+              db.run('UPDATE subscribers SET pro=?,stripe_subscription_id=?,stripe_status=?,current_period_end=?,stripe_updated_ts=? WHERE id=?', [ (status==='active'?1:0), subId, status, current_period_end, now, row.id ]);
+            } else {
+              // no subscriber found — try to match by email inside sub if present
+              const email = (sub && sub.customer_email) || null;
+              if(email){
+                db.get('SELECT id FROM subscribers WHERE email = ?', [email], (e2,r2)=>{
+                  if(e2) return console.error('DB error on sub update email match', e2);
+                  if(r2){ db.run('UPDATE subscribers SET pro=?,stripe_customer_id=?,stripe_subscription_id=?,stripe_status=?,current_period_end=?,stripe_updated_ts=? WHERE id=?', [ (status==='active'?1:0), customerId, subId, status, current_period_end, now, r2.id ]); }
+                });
+              }
+            }
+          });
+          break;
+        }
+        case 'customer.subscription.deleted':{
+          const sub = obj; const customerId = sub.customer; const subId = sub.id; const status = sub.status || 'canceled'; const now = Date.now();
+          db.get('SELECT id,current_period_end FROM subscribers WHERE stripe_subscription_id = ?', [subId], (err,row)=>{
+            if(err) return console.error('DB error on sub deleted', err);
+            if(row){
+              // If current_period_end present, keep pro until period end; otherwise clear immediately
+              if(row.current_period_end && row.current_period_end > Date.now()){
+                db.run('UPDATE subscribers SET stripe_status=?,stripe_updated_ts=? WHERE id=?', [status, now, row.id]);
+              } else {
+                db.run('UPDATE subscribers SET pro=0,stripe_status=?,stripe_updated_ts=? WHERE id=?', [status, now, row.id]);
+              }
+            }
+          });
+          break;
+        }
+        case 'invoice.payment_failed':{
+          const inv = obj; const customerId = inv.customer; const now = Date.now();
+          db.get('SELECT id FROM subscribers WHERE stripe_customer_id = ?', [customerId], (err,row)=>{
+            if(err) return console.error('DB error on invoice failed', err);
+            if(row){ db.run('UPDATE subscribers SET stripe_status=?,stripe_updated_ts=? WHERE id=?', ['past_due', now, row.id]); }
+          });
+          break;
+        }
+        default:
+          console.log('Unhandled Stripe event type:', event.type);
+      }
+    }catch(e){ console.error('Error processing webhook', e); }
+  })();
+
   res.json({ received: true });
 });
 
