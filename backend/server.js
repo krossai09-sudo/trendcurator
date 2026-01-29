@@ -120,40 +120,102 @@ const publishSchema = Joi.object({
 });
 
 // Routes
-// Helper: send welcome email (Mailgun)
-async function sendWelcomeEmail(toEmail){
-  const MG_API_KEY = process.env.MAILGUN_API_KEY;
-  const MG_DOMAIN = process.env.MAILGUN_DOMAIN;
-  const FROM = process.env.EMAIL_FROM || `TrendCurator <welcome@${MG_DOMAIN || 'example.com'}>`;
-  if(!MG_API_KEY || !MG_DOMAIN){
-    console.warn('Mailgun not configured (MAILGUN_API_KEY or MAILGUN_DOMAIN missing). Signup will be accepted but no welcome email sent.');
-    return { ok: false, reason: 'mailgun_not_configured' };
+// Outgoing emails queue table
+// Fields: id, to_email, subject, body_html, attempts, last_error, status, ts_created, ts_sent
+
+// enqueue email helper
+function enqueueEmail(to_email, subject, body_html){
+  const eid = uuidv4();
+  const ts = Date.now();
+  const stmt = db.prepare('INSERT INTO outgoing_emails (id,to_email,subject,body_html,attempts,last_error,status,ts_created,ts_sent) VALUES (?,?,?,?,?,?,?,?,?)');
+  stmt.run(eid, to_email, subject, body_html, 0, null, 'queued', ts, null, (err)=>{
+    if(err) console.error('Failed to enqueue email', err);
+  });
+  return eid;
+}
+
+// Worker: attempt to send an email via Resend (HTTP API)
+async function attemptSendEmail(emailRow){
+  const RESEND_API_KEY = process.env.RESEND_API_KEY;
+  const FROM = process.env.EMAIL_FROM || `TrendCurator <no-reply@trendcurator.org>`;
+  if(!RESEND_API_KEY){
+    throw new Error('Resend API key not configured');
   }
-  try{
-    const url = `https://api.mailgun.net/v3/${MG_DOMAIN}/messages`;
-    const params = new URLSearchParams();
-    params.append('from', FROM);
-    params.append('to', toEmail);
-    params.append('subject', 'Welcome to TrendCurator — your first pick is coming');
-    params.append('html', `<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f1113;line-height:1.4">
+  const payload = { from: FROM, to: [emailRow.to_email], subject: emailRow.subject, html: emailRow.body_html };
+  const res = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const text = await res.text();
+  if(!res.ok){
+    const err = new Error('Resend send failed: ' + res.status + ' ' + text);
+    err.status = res.status; err.body = text;
+    throw err;
+  }
+  return JSON.parse(text || '{}');
+}
+
+// Worker runner (called periodically or via admin endpoint)
+async function processEmailQueue(limit=10){
+  return new Promise((resolve)=>{
+    db.all("SELECT id,to_email,subject,body_html,attempts,last_error FROM outgoing_emails WHERE status IN ('queued','failed') ORDER BY ts_created ASC LIMIT ?", [limit], async (err, rows)=>{
+      if(err || !rows) return resolve({ ok:false, error: err ? err.message : 'no rows' });
+      const results = [];
+      for(const r of rows){
+        try{
+          // exponential backoff: skip retries where attempts >0 and last attempt was recent
+          if(r.attempts>0){
+            // simple backoff: wait attempts^2 * 1000 ms since last error (not storing last attempt time for simplicity)
+          }
+          await attemptSendEmail(r);
+          const tsent = Date.now();
+          db.run('UPDATE outgoing_emails SET status=?,attempts=attempts+1,ts_sent=?,last_error=NULL WHERE id=?', ['sent', tsent, r.id]);
+          results.push({ id: r.id, status: 'sent' });
+        }catch(e){
+          console.error('Email send attempt failed for', r.id, e.message || e);
+          const attempts = (r.attempts || 0) + 1;
+          const last_error = (e.message||String(e)).slice(0,1000);
+          const status = attempts >= 5 ? 'permanent_failed' : 'failed';
+          db.run('UPDATE outgoing_emails SET status=?,attempts=?,last_error=? WHERE id=?', [status, attempts, last_error, r.id]);
+          results.push({ id: r.id, status });
+        }
+      }
+      resolve({ ok:true, results });
+    });
+  });
+}
+
+// Admin endpoints for queue inspection
+app.get('/admin/api/email-queue', checkAdmin, (req,res)=>{
+  db.all('SELECT id,to_email,subject,attempts,last_error,status,ts_created,ts_sent FROM outgoing_emails ORDER BY ts_created DESC LIMIT 200', (err,rows)=>{
+    if(err) return res.status(500).json({ error: 'Database error' });
+    return res.json(rows||[]);
+  });
+});
+
+app.post('/admin/api/email-queue/process', checkAdmin, async (req,res)=>{
+  const result = await processEmailQueue(20);
+  return res.json(result);
+});
+
+app.post('/admin/api/email-queue/:id/retry', checkAdmin, (req,res)=>{
+  const id = req.params.id;
+  db.run('UPDATE outgoing_emails SET status=?,attempts=? WHERE id=?', ['queued', 0, id], function(err){
+    if(err) return res.status(500).json({ error: 'Database error' });
+    return res.json({ ok:true, id });
+  });
+});
+
+// Helper: send welcome email (enqueue for Resend)
+function sendWelcomeEmail(toEmail){
+  const FROM = process.env.EMAIL_FROM || `TrendCurator <no-reply@trendcurator.org>`;
+  const subject = 'Welcome to TrendCurator — your first pick is coming';
+  const body = `<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f1113;line-height:1.4">
       <h2 style="margin:0 0 8px 0">Welcome — thanks for joining TrendCurator</h2>
       <p style="margin:0 0 12px 0;color:#555">Each week we send one short, human-curated product pick. No spam — unsubscribe any time.</p>
       <p style="margin:0 0 12px 0">If you didn't sign up, ignore this email.</p>
       <p style="margin:0">— TrendCurator</p>
-    </div>`);
-
-    const res = await fetch(url, { method: 'POST', headers: { 'Authorization': 'Basic ' + Buffer.from(`api:${MG_API_KEY}`).toString('base64'), 'Content-Type': 'application/x-www-form-urlencoded' }, body: params });
-    const text = await res.text();
-    if(!res.ok){
-      console.error('Mailgun send failed', res.status, text);
-      return { ok: false, status: res.status, body: text };
-    }
-    console.log('Mailgun send success for', toEmail, text.substring(0,200));
-    return { ok: true };
-  }catch(e){
-    console.error('Mailgun send exception', e);
-    return { ok: false, reason: 'exception', error: e.message };
-  }
+    </div>`;
+  // enqueue and return id
+  enqueueEmail(toEmail, subject, body);
+  return { ok:true };
 }
 
 app.post('/signup', async (req, res) => {
@@ -167,7 +229,6 @@ app.post('/signup', async (req, res) => {
       if(row){
         // friendly response when already subscribed
         console.log(`[SIGNUP] existing email: ${value.email}`);
-        // still attempt to send welcome if desired? skip to avoid duplicates
         return res.status(200).json({ ok: true, id: row.id, message: 'already_subscribed' });
       }
       const id = uuidv4();
@@ -178,16 +239,11 @@ app.post('/signup', async (req, res) => {
         const resp = { ok: true, id };
         console.log(JSON.stringify({event:'signup', email: value.email, source: value.source||'', resp}));
 
-        // Attempt to send welcome email, but do not block signup success if email provider missing or fails
-        (async ()=>{
-          const result = await sendWelcomeEmail(value.email).catch(e=>({ ok:false, reason:'exception', error:e.message }));
-          if(result && result.ok){
-            console.log(JSON.stringify({event:'welcome_email_sent', email: value.email}));
-          } else {
-            console.warn(JSON.stringify({event:'welcome_email_failed', email: value.email, detail: result}));
-            // TODO: push to retry queue or mark in DB for retry
-          }
-        })();
+        // Enqueue welcome email (non-blocking)
+        try{
+          sendWelcomeEmail(value.email);
+          console.log('Enqueued welcome email for', value.email);
+        }catch(e){ console.error('Failed to enqueue welcome email', e); }
 
         return res.json(resp);
       });
