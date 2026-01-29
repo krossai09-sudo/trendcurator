@@ -12,7 +12,7 @@ const fs = require('fs');
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'changeme_admin_token';
 const PORT = process.env.PORT || 8787;
 const BASE_URL_ENV = process.env.BASE_URL;
-const DEFAULT_RENDER_BASE = 'https://trendcurator.onrender.com';
+const DEFAULT_RENDER_BASE = 'https://trendcurator.org';
 // BASE_URL will be computed per-request in publish handler to avoid localhost in production
 const BASE_URL = BASE_URL_ENV || `http://localhost:${PORT}`; // fallback for local dev
 // DATA_DIR handling: prefer explicit env var; when on Render and DATA_DIR not set, default to Render-friendly workspace
@@ -278,6 +278,22 @@ app.use((req,res,next)=>{
 
 
 // Serve preview site static (optional)
+// To avoid accidental response concatenation at the edge, explicitly serve index.html for '/'
+app.get('/', (req, res, next) => {
+  try{
+    const indexPath = path.join(__dirname, '..', 'web-preview', 'index.html');
+    const content = fs.readFileSync(indexPath, 'utf8');
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    // add a diagnostic header so we can see which service served the page
+    res.set('X-Served-By', 'trendcurator-backend');
+    return res.send(content);
+  }catch(e){
+    console.error('Failed to read index.html', e);
+    return next();
+  }
+});
+
+// Serve other static assets
 app.use('/', express.static(path.join(__dirname, '..', 'web-preview')));
 
 app.listen(PORT, '0.0.0.0', ()=>{
