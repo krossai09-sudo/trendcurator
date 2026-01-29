@@ -196,21 +196,57 @@ app.post('/publish', (req, res) => {
   if (!token || token !== process.env.ADMIN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
   const { error, value } = publishSchema.validate(req.body);
   if (error) return res.status(400).json({ error: error.message });
+
   const id = uuidv4();
   const ts = Date.now();
-  const stmt = db.prepare('INSERT INTO issues (id,title,description,reason,link,score,ts) VALUES (?,?,?,?,?,?,?)');
-  stmt.run(id, value.title, value.description, value.reason, value.link||null, value.score||null, ts, function(err){
-    if(err){
-      console.error('DB error',err);
-      return res.status(500).json({ error: 'Database error' });
+
+  // If a vendor link is provided, create a go/ slug entry and store the go link on the issue
+  const createLinkAndIssue = (done) => {
+    if(!value.link){
+      // no external link provided — just insert issue with null link
+      const stmt = db.prepare('INSERT INTO issues (id,title,description,reason,link,score,ts) VALUES (?,?,?,?,?,?,?)');
+      stmt.run(id, value.title, value.description, value.reason, null, value.score||null, ts, (err)=> done(err, null));
+      return;
     }
+    // generate slug from title or url
+    const baseSlug = (value.slug && String(value.slug).trim()) || String(value.title || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') || uuidv4().slice(0,8);
+    const trySlug = (candidate, cb) => {
+      const lid = uuidv4();
+      db.get('SELECT id FROM links WHERE slug = ?', [candidate], (err,row)=>{
+        if(err) return cb(err);
+        if(row) return cb(null, false); // exists
+        // insert link record
+        const lstmt = db.prepare('INSERT INTO links (id,slug,default_url,url_uk,url_us,url_eu,url_row,ts) VALUES (?,?,?,?,?,?,?,?)');
+        lstmt.run(lid, candidate, value.link, null, null, null, null, ts, (lerr)=>{
+          if(lerr) return cb(lerr);
+          // compute public go link
+          const baseUrl = BASE_URL_ENV || (process.env.RENDER ? DEFAULT_RENDER_BASE : `https://${process.env.HOSTNAME||'trendcurator.org'}`);
+          const goUrl = `${baseUrl.replace(/\/$/,'')}/go/${candidate}`;
+          // insert issue with goUrl
+          const istmt = db.prepare('INSERT INTO issues (id,title,description,reason,link,score,ts) VALUES (?,?,?,?,?,?,?)');
+          istmt.run(id, value.title, value.description, value.reason, goUrl, value.score||null, ts, (ierr)=> cb(ierr, { goUrl, slug: candidate }));
+        });
+      });
+    };
+    // attempt candidate and fallback if collision
+    (function attempt(n){
+      const candidate = n===0 ? baseSlug : `${baseSlug}-${Math.floor(Math.random()*9000)+1000}`;
+      trySlug(candidate, (err, resInfo)=>{
+        if(err) return done(err);
+        if(resInfo===false) return attempt(n+1);
+        return done(null, resInfo);
+      });
+    })(0);
+  };
+
+  createLinkAndIssue((err, resInfo)=>{
+    if(err){ console.error('DB error',err); return res.status(500).json({ error: 'Database error' }); }
     db.get('SELECT COUNT(1) AS c FROM subscribers', (err2,row)=>{
       const count = (row && row.c) || 0;
-      // compute base URL: prefer env, else if on Render default to known domain, else derive from request headers
       const baseUrl = BASE_URL_ENV || (process.env.RENDER ? DEFAULT_RENDER_BASE : `${req.get('x-forwarded-proto')||req.protocol}://${req.get('x-forwarded-host')||req.get('host')}`);
       const issueUrl = `${baseUrl.replace(/\/$/, '')}/archive.html#${id}`;
-      console.log(JSON.stringify({event:'publish', id, title:value.title, subscribers:count, ts, baseUrl, issueUrl}));
-      return res.json({ ok: true, id, url: issueUrl });
+      console.log(JSON.stringify({event:'publish', id, title:value.title, subscribers:count, ts, baseUrl, issueUrl, linkInfo:resInfo||null}));
+      return res.json({ ok: true, id, url: issueUrl, link: resInfo && resInfo.goUrl ? resInfo.goUrl : null });
     });
   });
 });
