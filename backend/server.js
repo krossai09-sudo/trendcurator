@@ -81,6 +81,14 @@ db.serialize(() => {
     ua TEXT,
     country TEXT
   )`);
+
+  // Stripe webhook events processed (idempotency)
+  db.run(`CREATE TABLE IF NOT EXISTS stripe_events (
+    id TEXT PRIMARY KEY,
+    type TEXT,
+    created INTEGER,
+    received_ts INTEGER
+  )`);
 });
 
 const app = express();
@@ -488,9 +496,21 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res
   }
 
   const obj = event.data && event.data.object;
-  (async ()=>{
-    try{
-      switch(event.type){
+
+  // Idempotency: record event.id to avoid double-processing
+  try{
+    const evId = event.id;
+    const evCreated = event.created || Math.floor(Date.now()/1000);
+    db.run('INSERT INTO stripe_events (id,type,created,received_ts) VALUES (?,?,?,?)', [evId, event.type, evCreated, Date.now()], (err)=>{
+      if(err){
+        // unique constraint -> already processed
+        console.log('Stripe webhook dedup: event already processed', event.id);
+        return res.json({ ok:true, deduped:true });
+      }
+      // continue processing below
+      (async ()=>{
+        try{
+          switch(event.type){
         case 'checkout.session.completed':{
           const session = obj;
           const email = (session.customer_details && session.customer_details.email) || session.customer_email || null;
