@@ -589,15 +589,20 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res
         }
         case 'customer.subscription.deleted':{
           const sub = obj; const customerId = sub.customer; const subId = sub.id; const status = sub.status || 'canceled'; const now = Date.now();
-          db.get('SELECT id,current_period_end FROM subscribers WHERE stripe_subscription_id = ?', [subId], (err,row)=>{
+          db.get('SELECT id,current_period_end FROM subscribers WHERE stripe_subscription_id = ? OR stripe_customer_id = ?', [subId, customerId], (err,row)=>{
             if(err) return console.error('DB error on sub deleted', err);
             if(row){
-              // If current_period_end present, keep pro until period end; otherwise clear immediately
-              if(row.current_period_end && row.current_period_end > Date.now()){
+              const keepUntil = row.current_period_end || sub.current_period_end ? (row.current_period_end || (sub.current_period_end ? sub.current_period_end*1000 : null)) : null;
+              if(keepUntil && keepUntil > Date.now()){
+                // keep pro until period end
                 db.run('UPDATE subscribers SET stripe_status=?,stripe_updated_ts=? WHERE id=?', [status, now, row.id]);
+                console.log('Webhook:', event.id, event.type, 'keeping pro until period end for subscriber', row.id, 'until', keepUntil);
               } else {
                 db.run('UPDATE subscribers SET pro=0,stripe_status=?,stripe_updated_ts=? WHERE id=?', [status, now, row.id]);
+                console.log('Webhook:', event.id, event.type, 'revoked pro for subscriber', row.id);
               }
+            } else {
+              console.log('Webhook:', event.id, event.type, 'no subscriber match for deleted subscription', subId, customerId);
             }
           });
           break;
@@ -606,7 +611,8 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res
           const inv = obj; const customerId = inv.customer; const now = Date.now();
           db.get('SELECT id FROM subscribers WHERE stripe_customer_id = ?', [customerId], (err,row)=>{
             if(err) return console.error('DB error on invoice failed', err);
-            if(row){ db.run('UPDATE subscribers SET stripe_status=?,stripe_updated_ts=? WHERE id=?', ['past_due', now, row.id]); }
+            if(row){ db.run('UPDATE subscribers SET stripe_status=?,stripe_updated_ts=? WHERE id=?', ['past_due', now, row.id]); console.log('Webhook:', event.id, event.type, 'marked past_due for subscriber', row.id); }
+            else { console.log('Webhook:', event.id, event.type, 'no subscriber match for invoice.payment_failed', customerId); }
           });
           break;
         }
@@ -617,6 +623,40 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res
   })();
 
   res.json({ received: true });
+});
+
+// Admin grant/revoke endpoints
+app.post('/admin/grant-pro', checkAdmin, express.json(), (req,res)=>{
+  const { email } = req.body||{};
+  if(!email) return res.status(400).json({ error: 'email required' });
+  const now = Date.now();
+  db.run('UPDATE subscribers SET pro=1,stripe_status=?,stripe_updated_ts=? WHERE email=?', ['manual', now, email], function(err){
+    if(err) return res.status(500).json({ error: 'DB error' });
+    return res.json({ ok:true, email });
+  });
+});
+app.post('/admin/revoke-pro', checkAdmin, express.json(), (req,res)=>{
+  const { email } = req.body||{};
+  if(!email) return res.status(400).json({ error: 'email required' });
+  const now = Date.now();
+  db.run('UPDATE subscribers SET pro=0,stripe_status=?,stripe_updated_ts=? WHERE email=?', ['revoked', now, email], function(err){
+    if(err) return res.status(500).json({ error: 'DB error' });
+    return res.json({ ok:true, email });
+  });
+});
+
+// Me endpoint (auth by email param for now)
+app.get('/me', (req,res)=>{
+  const email = (req.query.email || '').trim().toLowerCase();
+  if(!email) return res.status(400).json({ error: 'email required' });
+  db.get('SELECT email,pro,stripe_status,current_period_end,stripe_customer_id,stripe_subscription_id,stripe_updated_ts FROM subscribers WHERE email=?', [email], (err,row)=>{
+    if(err) return res.status(500).json({ error: 'DB error' });
+    if(!row) return res.json({ ok:true, pro:false });
+    // compute pro-on-read
+    const now = Date.now();
+    const isPro = (row.stripe_status && (row.stripe_status==='active' || row.stripe_status==='trialing')) || (row.current_period_end && row.current_period_end > now) || (row.pro && row.stripe_status==='manual');
+    return res.json({ ok:true, email: row.email, pro: !!isPro, stripe_status: row.stripe_status, current_period_end: row.current_period_end, stripe_customer_id: row.stripe_customer_id, stripe_subscription_id: row.stripe_subscription_id });
+  });
 });
 
 // Billing portal redirect (create session)
