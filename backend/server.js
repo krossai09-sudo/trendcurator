@@ -458,7 +458,8 @@ app.post('/create-checkout-session', async (req, res) => {
     // Minimal payload: { success_url, cancel_url, customer_email }
     const success_url = body.success_url || (BASE_URL.replace(/\/$/,'') + '/');
     const cancel_url = body.cancel_url || (BASE_URL.replace(/\/$/,'') + '/');
-    const customer_email = body.customer_email || null;
+    const customer_email = (body.customer_email || null);
+    const normalizedEmail = customer_email ? String(customer_email).trim().toLowerCase() : null;
     // Lazy require to avoid crash when stripe not installed
     const Stripe = require('stripe');
     const stripe = Stripe(STRIPE_SECRET);
@@ -468,7 +469,9 @@ app.post('/create-checkout-session', async (req, res) => {
       line_items: [{ price: STRIPE_PRICE_ID, quantity: 1 }],
       success_url,
       cancel_url,
-      customer_email,
+      customer_email: normalizedEmail,
+      client_reference_id: normalizedEmail || undefined,
+      metadata: normalizedEmail ? { subscriber_email: normalizedEmail } : undefined
     });
     return res.json({ ok: true, url: session.url, id: session.id });
   } catch (e) {
@@ -609,7 +612,7 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res
         }
         case 'invoice.payment_failed':{
           const inv = obj; const customerId = inv.customer; const now = Date.now();
-          db.get('SELECT id FROM subscribers WHERE stripe_customer_id = ?', [customerId], (err,row)=>{
+          db.get('SELECT id,current_period_end FROM subscribers WHERE stripe_customer_id = ?', [customerId], (err,row)=>{
             if(err) return console.error('DB error on invoice failed', err);
             if(row){ db.run('UPDATE subscribers SET stripe_status=?,stripe_updated_ts=? WHERE id=?', ['past_due', now, row.id]); console.log('Webhook:', event.id, event.type, 'marked past_due for subscriber', row.id); }
             else { console.log('Webhook:', event.id, event.type, 'no subscriber match for invoice.payment_failed', customerId); }
@@ -621,25 +624,38 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res
       }
     }catch(e){ console.error('Error processing webhook', e); }
   })();
-
   res.json({ received: true });
+});
+
+// Admin stripe status endpoint: recent webhook events and recent subscribers (token-protected)
+app.get('/stripe/status', checkAdmin, (req,res)=>{
+  db.all('SELECT id,type,created,received_ts FROM stripe_events ORDER BY received_ts DESC LIMIT 20', (err,events)=>{
+    if(err) return res.status(500).json({ error: 'DB error' });
+    db.all('SELECT email,pro,stripe_status,current_period_end,stripe_customer_id,stripe_subscription_id,stripe_updated_ts FROM subscribers ORDER BY stripe_updated_ts DESC LIMIT 40', (err2,subs)=>{
+      if(err2) return res.status(500).json({ error: 'DB error' });
+      return res.json({ ok:true, events: events||[], subscribers: subs||[] });
+    });
+  });
 });
 
 // Admin grant/revoke endpoints
 app.post('/admin/grant-pro', checkAdmin, express.json(), (req,res)=>{
-  const { email } = req.body||{};
+  const { email, days } = req.body||{};
   if(!email) return res.status(400).json({ error: 'email required' });
   const now = Date.now();
-  db.run('UPDATE subscribers SET pro=1,stripe_status=?,stripe_updated_ts=? WHERE email=?', ['manual', now, email], function(err){
+  const periodDays = Number(days) || 30;
+  const newExpiry = now + periodDays * 24 * 60 * 60 * 1000;
+  db.run('UPDATE subscribers SET pro=1,stripe_status=?,current_period_end=?,stripe_updated_ts=? WHERE email=?', ['manual', newExpiry, now, email], function(err){
     if(err) return res.status(500).json({ error: 'DB error' });
-    return res.json({ ok:true, email });
+    return res.json({ ok:true, email, current_period_end: newExpiry });
   });
 });
 app.post('/admin/revoke-pro', checkAdmin, express.json(), (req,res)=>{
   const { email } = req.body||{};
   if(!email) return res.status(400).json({ error: 'email required' });
   const now = Date.now();
-  db.run('UPDATE subscribers SET pro=0,stripe_status=?,stripe_updated_ts=? WHERE email=?', ['revoked', now, email], function(err){
+  const past = now - 24*60*60*1000;
+  db.run('UPDATE subscribers SET pro=0,stripe_status=?,current_period_end=?,stripe_updated_ts=? WHERE email=?', ['revoked', past, now, email], function(err){
     if(err) return res.status(500).json({ error: 'DB error' });
     return res.json({ ok:true, email });
   });
@@ -647,6 +663,11 @@ app.post('/admin/revoke-pro', checkAdmin, express.json(), (req,res)=>{
 
 // Me endpoint (auth by email param for now)
 app.get('/me', (req,res)=>{
+  // For testing only. In production this endpoint should be protected (ADMIN_TOKEN or session-based auth).
+  const allowDev = process.env.ALLOW_ME_ENDPOINT === '1';
+  if(!allowDev && (!req.header('x-admin-token') || req.header('x-admin-token') !== process.env.ADMIN_TOKEN)){
+    return res.status(403).json({ error: 'Forbidden: /me is protected in production' });
+  }
   const email = (req.query.email || '').trim().toLowerCase();
   if(!email) return res.status(400).json({ error: 'email required' });
   db.get('SELECT email,pro,stripe_status,current_period_end,stripe_customer_id,stripe_subscription_id,stripe_updated_ts FROM subscribers WHERE email=?', [email], (err,row)=>{
