@@ -2,7 +2,8 @@ Stripe & Webhook setup
 
 Required environment variables (set these in Render):
 - STRIPE_SECRET - your Stripe secret key (sk_live_...)
-- STRIPE_PRICE_ID - price id for the Pro subscription (price_...)
+- STRIPE_PRICE_ID_MONTHLY - Stripe Price ID for monthly plan (e.g. price_... for £10/month)
+- STRIPE_PRICE_ID_YEARLY - Stripe Price ID for yearly plan (e.g. price_... for £90/year)
 - STRIPE_WEBHOOK_SECRET - webhook signing secret (whsec_...)
 
 Webhook configuration (Stripe Dashboard)
@@ -16,7 +17,18 @@ Webhook configuration (Stripe Dashboard)
     - invoice.payment_succeeded
     - invoice.payment_failed
 
-Behavior & notes
+Create Checkout session (examples)
+- Monthly plan (server picks STRIPE_PRICE_ID_MONTHLY):
+  curl -X POST https://trendcurator.org/create-checkout-session \
+    -H "Content-Type: application/json" \
+    -d '{ "plan":"monthly", "customer_email":"you@example.com", "success_url":"https://trendcurator.org/?success=1", "cancel_url":"https://trendcurator.org/?cancel=1" }'
+
+- Yearly plan (server picks STRIPE_PRICE_ID_YEARLY):
+  curl -X POST https://trendcurator.org/create-checkout-session \
+    -H "Content-Type: application/json" \
+    -d '{ "plan":"yearly", "customer_email":"you@example.com", "success_url":"https://trendcurator.org/?success=1", "cancel_url":"https://trendcurator.org/?cancel=1" }'
+
+Webhook behavior & notes
 - Webhook handler validates signatures using STRIPE_WEBHOOK_SECRET and deduplicates events using an internal stripe_events table. Stripe may retry webhooks; dedup avoids double-processing.
 - Subscriber access policy:
   - pro = true when stripe_status is 'active' or 'trialing', OR current_period_end > now (access until period end)

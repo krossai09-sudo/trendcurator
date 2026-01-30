@@ -248,8 +248,12 @@ window.addEventListener('DOMContentLoaded', ()=>{
       if(!email){ proMsg.textContent='Please enter a valid email.'; return; }
       const btn = proForm.querySelector('button'); btn.disabled=true; btn.textContent='Joining...';
       try{
+        // Determine selected plan
+        const planRadios = document.querySelectorAll('input[name="plan"]');
+        let selectedPlan = 'monthly';
+        planRadios.forEach(r=>{ if(r.checked) selectedPlan = r.value; });
         // Create Stripe Checkout session via backend and redirect
-        const payload = { success_url: 'https://trendcurator.org/?success=1', cancel_url: 'https://trendcurator.org/?cancel=1', customer_email: email };
+        const payload = { success_url: 'https://trendcurator.org/?success=1', cancel_url: 'https://trendcurator.org/?cancel=1', customer_email: email, plan: selectedPlan };
         const res = await fetch('/create-checkout-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const data = await res.json().catch(()=>null);
         if(res.ok && data && data.url){

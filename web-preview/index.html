@@ -204,9 +204,15 @@
           <button id="pro-close" style="background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button>
         </div>
         <p class="small muted" style="margin-top:10px">Pro is launching soon. Leave your email to get early access and member discounts.</p>
-        <form id="pro-form" style="margin-top:12px;display:flex;gap:8px;align-items:center">
-          <input id="pro-email" type="email" placeholder="you@example.com" style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text)">
-          <button class="cta" type="submit">Join</button>
+        <form id="pro-form" style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-direction:column">
+          <div style="display:flex;gap:12px;align-items:center;width:100%;margin-bottom:8px">
+            <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="plan" value="monthly" checked> <span style="margin-left:6px">Monthly — £10</span></label>
+            <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="plan" value="yearly"> <span style="margin-left:6px">Yearly — £90</span></label>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;width:100%">
+            <input id="pro-email" type="email" placeholder="you@example.com" style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text)">
+            <button class="cta" type="submit">Join</button>
+          </div>
         </form>
         <div id="pro-msg" class="small muted" style="margin-top:8px"></div>
       </div>
