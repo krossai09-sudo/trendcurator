@@ -42,14 +42,6 @@ db.serialize(() => {
     utm TEXT,
     ts INTEGER NOT NULL
   )`);
-
-  // Stripe webhook events processed (idempotency)
-  db.run(`CREATE TABLE IF NOT EXISTS stripe_events (
-    id TEXT PRIMARY KEY,
-    type TEXT,
-    created INTEGER,
-    received_ts INTEGER
-  )`);
   db.run(`CREATE TABLE IF NOT EXISTS issues (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -304,42 +296,28 @@ app.post('/create-checkout-session', async (req, res) => {
     return res.status(501).json({ error: 'Stripe not configured (STRIPE_SECRET or STRIPE_PRICE_ID missing)' });
   }
   // minimal validation
-  const { success_url, cancel_url, customer_email, plan } = req.body || {};
+  const { success_url, cancel_url, customer_email } = req.body || {};
   if (!success_url || !cancel_url) {
     return res.status(400).json({ error: 'success_url and cancel_url are required in body' });
   }
   try {
     const body = req.body || {};
-    // Minimal payload: { success_url, cancel_url, customer_email, plan }
+    // Minimal payload: { success_url, cancel_url, customer_email }
     const success_url = body.success_url || (BASE_URL.replace(/\/$/,'') + '/');
     const cancel_url = body.cancel_url || (BASE_URL.replace(/\/$/,'') + '/');
-    const customer_email = (body.customer_email || null);
-    const normalizedEmail = customer_email ? String(customer_email).trim().toLowerCase() : null;
-
-    // choose price id by plan (default to monthly)
-    const planChoice = (String(body.plan || 'monthly')).toLowerCase();
-    const monthly = process.env.STRIPE_PRICE_ID_MONTHLY || STRIPE_PRICE_ID;
-    const yearly = process.env.STRIPE_PRICE_ID_YEARLY || null;
-    let chosenPriceId = monthly;
-    if(planChoice === 'yearly'){
-      if(!yearly) return res.status(500).json({ error: 'Yearly price id not configured (STRIPE_PRICE_ID_YEARLY)' });
-      chosenPriceId = yearly;
-    }
-
+    const customer_email = body.customer_email || null;
     // Lazy require to avoid crash when stripe not installed
     const Stripe = require('stripe');
     const stripe = Stripe(STRIPE_SECRET);
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
-      line_items: [{ price: chosenPriceId, quantity: 1 }],
+      line_items: [{ price: STRIPE_PRICE_ID, quantity: 1 }],
       success_url,
       cancel_url,
-      customer_email: normalizedEmail,
-      client_reference_id: normalizedEmail || undefined,
-      metadata: normalizedEmail ? { subscriber_email: normalizedEmail, plan: planChoice } : { plan: planChoice }
+      customer_email,
     });
-    return res.json({ ok: true, url: session.url, id: session.id, plan: planChoice });
+    return res.json({ ok: true, url: session.url, id: session.id });
   } catch (e) {
     console.error('Stripe create-checkout error', e);
     return res.status(500).json({ error: 'Stripe error', detail: e.message });
@@ -363,18 +341,7 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res
     console.error('Webhook signature verification failed.', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
-
-  // Idempotency: record event.id to avoid double-processing
-  try{
-    const evId = event.id;
-    const evCreated = event.created || Math.floor(Date.now()/1000);
-    db.run('INSERT INTO stripe_events (id,type,created,received_ts) VALUES (?,?,?,?)', [evId, event.type, evCreated, Date.now()], (err)=>{
-      if(err){
-        console.log('Stripe webhook dedup: event already processed', evId);
-        return res.json({ ok:true, deduped:true });
-      }
-      // continue to switch below
-      
+  // Handle event types (skeleton)
   switch (event.type) {
     case 'checkout.session.completed':
       console.log('stripe event: checkout.session.completed', event.data.object.id);
