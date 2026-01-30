@@ -404,6 +404,18 @@ app.get('/', (req, res, next) => {
   }
 });
 
+// Override root to always serve latest repo index.html (bypass static caching at edge)
+app.get('/', (req,res,next)=>{
+  try{
+    const indexPath = path.join(__dirname, '..', 'web-preview', 'index.html');
+    const content = fs.readFileSync(indexPath,'utf8');
+    res.set('Content-Type','text/html; charset=utf-8');
+    res.set('Cache-Control','no-store');
+    res.set('X-Served-By','trendcurator-backend-override');
+    return res.send(content);
+  }catch(e){ console.error('Failed to read index override', e); return next(); }
+});
+
 // Serve other static assets
 app.use('/', express.static(path.join(__dirname, '..', 'web-preview')));
 
