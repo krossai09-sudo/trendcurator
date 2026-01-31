@@ -416,6 +416,64 @@ app.get('/', (req,res,next)=>{
   }catch(e){ console.error('Failed to read index override', e); return next(); }
 });
 
+// Simple demo login: POST /login sets a session cookie (tc_session)
+app.post('/login', (req,res)=>{
+  const email = (req.body && req.body.email) ? String(req.body.email).trim().toLowerCase() : null;
+  if(!email) return res.status(400).json({ error: 'email required' });
+  // ensure subscriber exists (create if not)
+  const ts = Date.now();
+  db.get('SELECT id FROM subscribers WHERE email = ?', [email], (err,row)=>{
+    if(err){ console.error('DB error on login', err); return res.status(500).json({ error: 'db_error' }); }
+    const id = row ? row.id : uuidv4();
+    const doSetCookie = ()=>{
+      // set simple session cookie valid for 30 days
+      const maxAge = 30*24*60*60*1000; // ms
+      res.cookie('tc_session', id, { httpOnly: true, secure: process.env.NODE_ENV==='production', sameSite: 'lax', maxAge });
+      // return success and redirect url
+      return res.json({ ok:true, redirect: '/dashboard' });
+    };
+    if(row) return doSetCookie();
+    // insert new subscriber
+    const stmt = db.prepare('INSERT INTO subscribers (id,email,source,utm,ts) VALUES (?,?,?,?,?)');
+    stmt.run(id, email, 'demo-login', null, ts, (ierr)=>{
+      if(ierr){ console.error('DB insert error on login', ierr); return res.status(500).json({ error: 'db_error' }); }
+      console.log('[LOGIN] created subscriber via demo login', email);
+      return doSetCookie();
+    });
+  });
+});
+
+// Dashboard: server-rendered members page
+app.get('/dashboard', (req,res)=>{
+  const sid = req.cookies && req.cookies.tc_session;
+  if(!sid){
+    // if not authenticated, redirect to public landing
+    return res.status(302).redirect('/');
+  }
+  // fetch latest issue and recent issues
+  db.get('SELECT id,title,description,reason,link,score,ts FROM issues ORDER BY ts DESC LIMIT 1', (err,latest)=>{
+    if(err){ console.error('DB error fetching latest issue', err); return res.status(500).send('Server error'); }
+    db.all('SELECT id,title,ts FROM issues ORDER BY ts DESC LIMIT 20', (err2,rows)=>{
+      if(err2){ console.error('DB error fetching archive', err2); return res.status(500).send('Server error'); }
+      // render simple HTML
+      const latestHtml = latest ? `<h2>${escapeHtml(latest.title)}</h2><p class="muted">${escapeHtml(latest.reason)}</p><p><a href="${latest.link||'#'}" target="_blank">View product</a></p>` : '<p>No picks yet</p>';
+      const archiveItems = (rows||[]).map(r=>`<li><a href="/archive.html#${r.id}">${escapeHtml(r.title)}</a></li>`).join('\n');
+      const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dashboard — TrendCurator</title><style>body{font-family:Inter,system-ui,Arial,sans-serif;background:#0f1113;color:#e9edf0;padding:18px} .sidebar{width:260px;float:left;margin-right:18px} .main{margin-left:280px} a{color:#5fb3c8}</style></head><body><div class="sidebar"><h3>Latest Pick</h3>${latestHtml}<hr><h4>Archive</h4><ul>${archiveItems||'<li>No archive yet</li>'}</ul><hr><a href="/logout">Logout</a></div><div class="main"><h1>Your dashboard</h1><p>Welcome back — here are your latest picks.</p></div></body></html>`;
+      res.set('Content-Type','text/html; charset=utf-8');
+      return res.send(html);
+    });
+  });
+});
+
+// Logout route
+app.get('/logout',(req,res)=>{
+  res.clearCookie('tc_session');
+  return res.redirect('/');
+});
+
+// simple helper for escaping
+function escapeHtml(s){ if(!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
 // Serve other static assets
 app.use('/', express.static(path.join(__dirname, '..', 'web-preview')));
 
