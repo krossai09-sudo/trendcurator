@@ -66,6 +66,50 @@ db.serialize(() => {
   )`);
 });
 
+// Run lightweight migrations: add new columns and tables only when missing
+db.serialize(()=>{
+  const ensureColumn = (table, column, def) => {
+    db.all(`PRAGMA table_info(${table})`, (err, cols) => {
+      if(err || !cols) return;
+      const names = cols.map(c=>c.name);
+      if(!names.includes(column)){
+        console.log(`Migrating: adding column ${column} to ${table}`);
+        db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`,(a,b)=>{});
+      }
+    });
+  };
+
+  // subscribers: add tier and stripe fields
+  ensureColumn('subscribers','tier',"TEXT NOT NULL DEFAULT 'free'");
+  ensureColumn('subscribers','stripe_customer_id','TEXT');
+  ensureColumn('subscribers','stripe_subscription_id','TEXT');
+  ensureColumn('subscribers','stripe_status','TEXT');
+  ensureColumn('subscribers','current_period_end','INTEGER');
+  ensureColumn('subscribers','last_email_sent_ts','INTEGER');
+
+  // issues: add visibility/type/published_for_month
+  ensureColumn('issues','visibility',"TEXT NOT NULL DEFAULT 'pro'");
+  ensureColumn('issues','type',"TEXT NOT NULL DEFAULT 'monthly_pro'");
+  ensureColumn('issues','published_for_month','TEXT');
+
+  // create email_queue if missing
+  db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='email_queue'", (err,row)=>{
+    if(err) return console.error('Migration check error',err);
+    if(!row){
+      console.log('Creating table email_queue');
+      db.run(`CREATE TABLE email_queue (
+        id TEXT PRIMARY KEY,
+        subscriber_id TEXT,
+        issue_id TEXT,
+        template TEXT,
+        status TEXT DEFAULT 'pending',
+        attempts INTEGER DEFAULT 0,
+        ts INTEGER NOT NULL
+      )`);
+    }
+  });
+});
+
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet({
