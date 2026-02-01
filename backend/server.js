@@ -413,20 +413,63 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res
     console.error('Webhook signature verification failed.', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
-  // Handle event types (skeleton)
-  switch (event.type) {
-    case 'checkout.session.completed':
-      console.log('stripe event: checkout.session.completed', event.data.object.id);
-      break;
-    case 'invoice.payment_succeeded':
-      console.log('stripe event: invoice.payment_succeeded', event.data.object.id);
-      break;
-    case 'customer.subscription.updated':
-      console.log('stripe event: customer.subscription.updated', event.data.object.id);
-      break;
-    default:
-      console.log(`Unhandled Stripe event type: ${event.type}`);
-  }
+  // Handle event types
+  try{
+    const obj = event.data.object || {};
+    switch (event.type) {
+      case 'checkout.session.completed':
+        console.log('stripe event: checkout.session.completed', obj.id);
+        // attempt to find or create subscriber by customer_email
+        (async ()=>{
+          try{
+            const email = obj.customer_email || (obj.customer && obj.customer.email) || null;
+            const customer = obj.customer || obj.customer_id || null;
+            // persist minimal stripe_events for audit (simple insert)
+            const seid = uuidv4();
+            db.run('INSERT INTO links (id,slug,default_url,ts) VALUES (?,?,?,?)', [seid, `evt-${seid}`, `stripe:${obj.id}`, Date.now()], ()=>{});
+            if(email){
+              db.get('SELECT id FROM subscribers WHERE email = ?', [email], (err,row)=>{
+                if(err) return console.error('DB error matching email',err);
+                const sid = row ? row.id : uuidv4();
+                if(!row){ db.run('INSERT INTO subscribers (id,email,source,utm,ts) VALUES (?,?,?,?,?)',[sid,email,'stripe',null,Date.now()]); }
+                // mark provisional pro until subscription webhook fires
+                db.run('UPDATE subscribers SET tier = ? WHERE id = ?', ['pro', sid]);
+                console.log('Marked subscriber as pro (email match)', email);
+              });
+            }
+          }catch(e){ console.error('checkout.session.process error', e); }
+        })();
+        break;
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated':
+        console.log('stripe event: subscription', obj.id);
+        // persist subscription info and mark subscriber pro if active
+        (async ()=>{
+          try{
+            const customerId = obj.customer;
+            const status = obj.status;
+            const current_period_end = obj.current_period_end ? obj.current_period_end*1000 : null;
+            // find subscriber by stripe_customer_id or email
+            db.get('SELECT id,email FROM subscribers WHERE stripe_customer_id = ? OR email = ?', [customerId, (obj.customer_email||null)], (err,row)=>{
+              if(err) return console.error('DB error',err);
+              if(row){
+                const sid = row.id;
+                db.run('UPDATE subscribers SET stripe_customer_id=?, stripe_subscription_id=?, stripe_status=?, current_period_end=?, tier=? WHERE id=?', [customerId, obj.id, status, current_period_end, (status==='active' || status==='trialing' || (current_period_end && current_period_end>Date.now())) ? 'pro' : 'free', sid]);
+                console.log('Updated subscriber subscription state', sid, status);
+              } else {
+                console.log('No matching subscriber for subscription event', customerId);
+              }
+            });
+          }catch(e){ console.error('subscription.process error', e); }
+        })();
+        break;
+      case 'invoice.payment_succeeded':
+        console.log('stripe event: invoice.payment_succeeded', obj.id);
+        break;
+      default:
+        console.log(`Unhandled Stripe event type: ${event.type}`);
+    }
+  }catch(e){ console.error('Error handling stripe event', e); }
   res.json({ received: true });
 });
 
