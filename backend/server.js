@@ -154,40 +154,11 @@ const publishSchema = Joi.object({
 });
 
 // Routes
-// Helper: send welcome email (Mailgun)
+// sendWelcomeEmail placeholder — we enqueue welcome emails into email_queue and use Resend via worker
 async function sendWelcomeEmail(toEmail){
-  const MG_API_KEY = process.env.MAILGUN_API_KEY;
-  const MG_DOMAIN = process.env.MAILGUN_DOMAIN;
-  const FROM = process.env.EMAIL_FROM || `TrendCurator <welcome@${MG_DOMAIN || 'example.com'}>`;
-  if(!MG_API_KEY || !MG_DOMAIN){
-    console.warn('Mailgun not configured (MAILGUN_API_KEY or MAILGUN_DOMAIN missing). Signup will be accepted but no welcome email sent.');
-    return { ok: false, reason: 'mailgun_not_configured' };
-  }
-  try{
-    const url = `https://api.mailgun.net/v3/${MG_DOMAIN}/messages`;
-    const params = new URLSearchParams();
-    params.append('from', FROM);
-    params.append('to', toEmail);
-    params.append('subject', 'Welcome to TrendCurator — your first pick is coming');
-    params.append('html', `<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f1113;line-height:1.4">
-      <h2 style="margin:0 0 8px 0">Welcome — thanks for joining TrendCurator</h2>
-      <p style="margin:0 0 12px 0;color:#555">Each week we send one short, human-curated product pick. No spam — unsubscribe any time.</p>
-      <p style="margin:0 0 12px 0">If you didn't sign up, ignore this email.</p>
-      <p style="margin:0">— TrendCurator</p>
-    </div>`);
-
-    const res = await fetch(url, { method: 'POST', headers: { 'Authorization': 'Basic ' + Buffer.from(`api:${MG_API_KEY}`).toString('base64'), 'Content-Type': 'application/x-www-form-urlencoded' }, body: params });
-    const text = await res.text();
-    if(!res.ok){
-      console.error('Mailgun send failed', res.status, text);
-      return { ok: false, status: res.status, body: text };
-    }
-    console.log('Mailgun send success for', toEmail, text.substring(0,200));
-    return { ok: true };
-  }catch(e){
-    console.error('Mailgun send exception', e);
-    return { ok: false, reason: 'exception', error: e.message };
-  }
+  // legacy stub — we now enqueue welcome emails to email_queue and process them via /_worker/process-email
+  console.log(JSON.stringify({ event:'email_enqueue_request', email: toEmail }));
+  return { ok:true };
 }
 
 app.post('/signup', async (req, res) => {
@@ -482,8 +453,8 @@ app.post('/_worker/process-email', async (req,res)=>{
     for(const r of rows){
       // fetch subscriber and issue
       const sub = await new Promise((resolve)=> db.get('SELECT id,email,tier FROM subscribers WHERE id=?',[r.subscriber_id], (e,s)=> resolve(s)));
-      const issue = await new Promise((resolve)=> db.get('SELECT id,title,reason,link,type,visibility FROM issues WHERE id=?',[r.issue_id], (e,i)=> resolve(i)));
-      if(!sub || !issue){
+      const issue = r.issue_id ? await new Promise((resolve)=> db.get('SELECT id,title,reason,link,type,visibility FROM issues WHERE id=?',[r.issue_id], (e,i)=> resolve(i))) : null;
+      if(!sub){
         db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['failed', r.id]);
         continue;
       }
