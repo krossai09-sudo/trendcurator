@@ -250,7 +250,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
       try{
         // Determine selected plan
         const planRadios = document.querySelectorAll('input[name="plan"]');
-        let selectedPlan = 'monthly';
+        let selectedPlan = 'yearly';
         planRadios.forEach(r=>{ if(r.checked) selectedPlan = r.value; });
         // Create Stripe Checkout session via backend and redirect
         const payload = { success_url: 'https://trendcurator.org/?success=1', cancel_url: 'https://trendcurator.org/?cancel=1', customer_email: email, plan: selectedPlan };
