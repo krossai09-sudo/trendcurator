@@ -196,32 +196,28 @@ app.post('/signup', async (req, res) => {
   const ts = Date.now();
   try{
     // check if email exists
-    db.get('SELECT id FROM subscribers WHERE email = ?', [value.email], async (err,row)=>{
+    db.get('SELECT id,tier FROM subscribers WHERE email = ?', [value.email], async (err,row)=>{
       if(err){ console.error('DB error', err); return res.status(500).json({ error: 'Database error' }); }
       if(row){
         // friendly response when already subscribed
         console.log(`[SIGNUP] existing email: ${value.email}`);
-        // still attempt to send welcome if desired? skip to avoid duplicates
         return res.status(200).json({ ok: true, id: row.id, message: 'already_subscribed' });
       }
       const id = uuidv4();
-      const stmt = db.prepare('INSERT INTO subscribers (id,email,source,utm,ts) VALUES (?,?,?,?,?)');
-      stmt.run(id, value.email, value.source || null, value.utm || null, ts, async function(insertErr){
+      const stmt = db.prepare('INSERT INTO subscribers (id,email,source,utm,ts,tier) VALUES (?,?,?,?,?,?)');
+      stmt.run(id, value.email, value.source || null, value.utm || null, ts, 'free', async function(insertErr){
         if(insertErr){ console.error('DB error',insertErr); return res.status(500).json({ error: 'Database error' }); }
         console.log(`[SIGNUP] New signup: ${value.email} source=${value.source||''} utm=${value.utm||''}`);
         const resp = { ok: true, id };
         console.log(JSON.stringify({event:'signup', email: value.email, source: value.source||'', resp}));
 
-        // Attempt to send welcome email, but do not block signup success if email provider missing or fails
-        (async ()=>{
-          const result = await sendWelcomeEmail(value.email).catch(e=>({ ok:false, reason:'exception', error:e.message }));
-          if(result && result.ok){
-            console.log(JSON.stringify({event:'welcome_email_sent', email: value.email}));
-          } else {
-            console.warn(JSON.stringify({event:'welcome_email_failed', email: value.email, detail: result}));
-            // TODO: push to retry queue or mark in DB for retry
-          }
-        })();
+        // Enqueue welcome email (uses template welcome_free)
+        db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='email_queue'", (errq,rq)=>{
+          if(errq || !rq){ console.warn('email_queue not present, skipping welcome enqueue'); return; }
+          const insert = db.prepare('INSERT INTO email_queue (id,subscriber_id,issue_id,template,status,attempts,ts) VALUES (?,?,?,?,?,?,?)');
+          try{ insert.run(uuidv4(), id, null, 'welcome_free', 'pending', 0, Date.now()); insert.finalize(()=>{ console.log('Enqueued welcome_free for', id); }); }
+          catch(e){ console.error('enqueue welcome failed', e); }
+        });
 
         return res.json(resp);
       });
@@ -519,7 +515,7 @@ app.post('/_worker/process-email', async (req,res)=>{
   });
 });
 
-// Billing portal redirect (create session)
+// Billing portal redirect (create session) — create session and redirect user
 app.get('/billing-portal', async (req, res) => {
   if (!STRIPE_SECRET) {
     return res.status(501).json({ error: 'Stripe not configured' });
@@ -535,6 +531,22 @@ app.get('/billing-portal', async (req, res) => {
     console.error('Stripe billing-portal error', e);
     return res.status(500).json({ error: 'Stripe error', detail: e.message });
   }
+});
+
+// Billing portal redirect for logged-in users: looks up subscriber by cookie and redirects to Stripe portal
+app.get('/billing-portal-redirect', async (req,res)=>{
+  const sid = req.cookies && req.cookies.tc_session;
+  if(!sid) return res.status(401).json({ error: 'not_authenticated' });
+  db.get('SELECT stripe_customer_id FROM subscribers WHERE id=?',[sid], async (err,row)=>{
+    if(err) return res.status(500).json({ error: 'db_error' });
+    if(!row || !row.stripe_customer_id) return res.status(400).json({ error: 'no_stripe_customer' });
+    try{
+      const Stripe = require('stripe');
+      const stripe = Stripe(STRIPE_SECRET);
+      const session = await stripe.billingPortal.sessions.create({ customer: row.stripe_customer_id, return_url: BASE_URL.replace(/\/$/,'/') });
+      return res.redirect(session.url);
+    }catch(e){ console.error('billing portal redirect error', e); return res.status(500).json({ error: 'stripe_error' }); }
+  });
 });
 
 
@@ -595,12 +607,27 @@ app.post('/login', (req,res)=>{
     };
     if(row) return doSetCookie();
     // insert new subscriber
-    const stmt = db.prepare('INSERT INTO subscribers (id,email,source,utm,ts) VALUES (?,?,?,?,?)');
-    stmt.run(id, email, 'demo-login', null, ts, (ierr)=>{
+    const stmt = db.prepare('INSERT INTO subscribers (id,email,source,utm,ts,tier) VALUES (?,?,?,?,?,?)');
+    stmt.run(id, email, 'demo-login', null, ts, 'free', (ierr)=>{
       if(ierr){ console.error('DB insert error on login', ierr); return res.status(500).json({ error: 'db_error' }); }
       console.log('[LOGIN] created subscriber via demo login', email);
       return doSetCookie();
     });
+  });
+});
+
+// Claim session after checkout: user posts email used for payment and we set session to that subscriber
+app.post('/claim-session', express.json(), (req,res)=>{
+  const email = req.body && req.body.email ? String(req.body.email).trim().toLowerCase() : null;
+  if(!email) return res.status(400).json({ error: 'email required' });
+  db.get('SELECT id,tier FROM subscribers WHERE email = ?', [email], (err,row)=>{
+    if(err) return res.status(500).json({ error: 'db_error' });
+    if(!row) return res.status(404).json({ error: 'not_found' });
+    const sid = row.id;
+    // set cookie for this subscriber id
+    const maxAge = 30*24*60*60*1000;
+    res.cookie('tc_session', sid, { httpOnly: true, secure: process.env.NODE_ENV==='production', sameSite: 'lax', maxAge });
+    return res.json({ ok:true, id: sid, tier: row.tier });
   });
 });
 
