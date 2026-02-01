@@ -549,6 +549,48 @@ app.get('/billing-portal-redirect', async (req,res)=>{
   });
 });
 
+// Monthly guarantee: ensure at least one monthly_pro issue exists for current month
+app.post('/admin/run-monthly-guarantee', (req,res)=>{
+  const token = req.header('x-admin-token') || req.body.admin_token;
+  if(!token || token !== process.env.ADMIN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
+  const now = new Date();
+  const yyyymm = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}`;
+  db.get('SELECT COUNT(1) AS c FROM issues WHERE type = ? AND published_for_month = ?', ['monthly_pro', yyyymm], (err,row)=>{
+    if(err) return res.status(500).json({ error: 'db_error' });
+    const count = (row && row.c) || 0;
+    if(count>0) return res.json({ ok:true, message: 'monthly pick exists', count });
+    // create fallback monthly_pro issue
+    const id = uuidv4();
+    const title = `Monthly pick — ${yyyymm}`;
+    const reason = 'Fallback monthly pick to guarantee Pro delivery.';
+    const ts = Date.now();
+    const stmt = db.prepare('INSERT INTO issues (id,title,description,reason,link,score,ts,visibility,type,published_for_month) VALUES (?,?,?,?,?,?,?,?,?,?)');
+    stmt.run(id, title, title, reason, null, 50, ts, 'pro', 'monthly_pro', yyyymm, (ierr)=>{
+      if(ierr) return res.status(500).json({ error: 'db_error_insert' });
+      // enqueue emails for pro subscribers
+      db.all("SELECT id FROM subscribers WHERE tier='pro'", (se,subs)=>{
+        if(se) return res.status(500).json({ error:'db_error_subs' });
+        const insert = db.prepare('INSERT INTO email_queue (id,subscriber_id,issue_id,template,status,attempts,ts) VALUES (?,?,?,?,?,?,?)');
+        let enq = 0;
+        const nowTs = Date.now();
+        (subs||[]).forEach(s=>{ try{ insert.run(uuidv4(), s.id, id, 'pro_monthly', 'pending', 0, nowTs); enq++; }catch(e){} });
+        insert.finalize(()=>{ return res.json({ ok:true, created:true, id, enqueued:enq }); });
+      });
+    });
+  });
+});
+
+// Admin status endpoint
+app.get('/admin/status', (req,res)=>{
+  const token = req.header('x-admin-token') || req.query.admin_token;
+  if(!token || token !== process.env.ADMIN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
+  db.get("SELECT COUNT(1) AS c FROM email_queue WHERE status='pending'", (e1,r1)=>{
+    db.get("SELECT COUNT(1) AS c FROM subscribers WHERE tier='pro'", (e2,r2)=>{
+      return res.json({ ok:true, pendingEmails: (r1 && r1.c)||0, proSubscribers: (r2 && r2.c)||0 });
+    });
+  });
+});
+
 
 // simple structured logging middleware for analytics
 app.use((req,res,next)=>{
