@@ -292,7 +292,25 @@ app.post('/publish', (req, res) => {
       const baseUrl = BASE_URL_ENV || (process.env.RENDER ? DEFAULT_RENDER_BASE : `${req.get('x-forwarded-proto')||req.protocol}://${req.get('x-forwarded-host')||req.get('host')}`);
       const issueUrl = `${baseUrl.replace(/\/$/, '')}/archive.html#${id}`;
       console.log(JSON.stringify({event:'publish', id, title:value.title, subscribers:count, ts, baseUrl, issueUrl, linkInfo:resInfo||null}));
-      return res.json({ ok: true, id, url: issueUrl, link: resInfo && resInfo.goUrl ? resInfo.goUrl : null });
+
+      // Enqueue emails for matching subscribers if email_queue exists
+      db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='email_queue'", (errq,rq)=>{
+        if(errq || !rq){ console.warn('email_queue not present, skipping enqueue'); return res.json({ ok: true, id, url: issueUrl, link: resInfo && resInfo.goUrl ? resInfo.goUrl : null }); }
+        // Determine recipients based on issue visibility (fall back to 'pro')
+        const visibility = value.visibility || 'pro';
+        const templ = (visibility==='free') ? 'free_pick' : (value.type==='weekly_pro' ? 'pro_weekly' : 'pro_monthly');
+        const tierFilter = (visibility==='free') ? "tier='free'" : "tier='pro'";
+        db.all(`SELECT id,email FROM subscribers WHERE ${tierFilter}`, (se, subs)=>{
+          if(se || !subs || !subs.length){ console.log('No subscribers matched for enqueue', se); return res.json({ ok: true, id, url: issueUrl, link: resInfo && resInfo.goUrl ? resInfo.goUrl : null }); }
+          const tsNow = Date.now();
+          const insert = db.prepare('INSERT INTO email_queue (id,subscriber_id,issue_id,template,status,attempts,ts) VALUES (?,?,?,?,?,?,?)');
+          let enqueued = 0;
+          subs.forEach(s=>{
+            try{ insert.run(uuidv4(), s.id, id, templ, 'pending', 0, tsNow); enqueued++; }catch(ie){ /* ignore */ }
+          });
+          insert.finalize(()=>{ console.log(`Enqueued ${enqueued} emails for issue ${id} template=${templ}`); return res.json({ ok: true, id, url: issueUrl, link: resInfo && resInfo.goUrl ? resInfo.goUrl : null, enqueued }); });
+        });
+      });
     });
   });
 });
