@@ -430,6 +430,52 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res
   res.json({ received: true });
 });
 
+// Simple email worker endpoint (process pending emails). Use RESEND_API_KEY to actually send.
+app.post('/_worker/process-email', async (req,res)=>{
+  const limit = parseInt(req.query.limit||'10',10);
+  db.all("SELECT id,subscriber_id,issue_id,template,ts FROM email_queue WHERE status='pending' ORDER BY ts ASC LIMIT ?", [limit], async (err, rows)=>{
+    if(err) return res.status(500).json({ error:'db' });
+    if(!rows || !rows.length) return res.json({ ok:true, processed:0 });
+    const RESEND_KEY = process.env.RESEND_API_KEY;
+    const FROM = process.env.RESEND_FROM || 'no-reply@trendcurator.org';
+    let processed = 0;
+    for(const r of rows){
+      // fetch subscriber and issue
+      const sub = await new Promise((resolve)=> db.get('SELECT id,email,tier FROM subscribers WHERE id=?',[r.subscriber_id], (e,s)=> resolve(s)));
+      const issue = await new Promise((resolve)=> db.get('SELECT id,title,reason,link,type,visibility FROM issues WHERE id=?',[r.issue_id], (e,i)=> resolve(i)));
+      if(!sub || !issue){
+        db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['failed', r.id]);
+        continue;
+      }
+      // defense: ensure tier matches template
+      if(issue.visibility==='pro' && sub.tier!=='pro'){ db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['skipped', r.id]); continue; }
+      if(issue.visibility==='free' && sub.tier!=='free'){ db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['skipped', r.id]); continue; }
+
+      // load template
+      const tplPath = path.join(__dirname,'templates', r.template + '.html');
+      let html = '';
+      try{ html = fs.readFileSync(tplPath,'utf8'); }catch(e){ console.error('Template read error', e); db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['failed', r.id]); continue; }
+      // simple interpolation
+      html = html.replace(/{{title}}/g, issue.title || '').replace(/{{reason}}/g, issue.reason || '').replace(/{{link}}/g, issue.link || '#');
+
+      if(!RESEND_KEY){
+        console.log('[EMAIL_WORKER] DRY RUN: would send to', sub.email, 'template', r.template);
+        db.run('UPDATE email_queue SET status=? WHERE id=?', ['sent_dry', r.id]);
+        processed++;
+        continue;
+      }
+      // send via Resend API
+      try{
+        const payload = { from: FROM, to: sub.email, subject: `${r.template.replace(/_/g,' ')} — ${issue.title}`, html };
+        const resp = await fetch('https://api.resend.com/emails',{ method:'POST', headers:{ 'Authorization':'Bearer '+RESEND_KEY,'Content-Type':'application/json' }, body: JSON.stringify(payload) });
+        if(resp.ok){ db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['sent', r.id]); processed++; }
+        else { const text = await resp.text(); console.error('Resend error', resp.status, text); db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['failed', r.id]); }
+      }catch(e){ console.error('Resend exception', e); db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['failed', r.id]); }
+    }
+    return res.json({ ok:true, processed });
+  });
+});
+
 // Billing portal redirect (create session)
 app.get('/billing-portal', async (req, res) => {
   if (!STRIPE_SECRET) {
