@@ -338,27 +338,35 @@ const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID; // price for Pro
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 
 app.post('/create-checkout-session', async (req, res) => {
-  if (!STRIPE_SECRET || !STRIPE_PRICE_ID) {
+  // Support monthly/yearly via STRIPE_PRICE_ID_MONTHLY / STRIPE_PRICE_ID_YEARLY
+  const PRICE_MONTHLY = process.env.STRIPE_PRICE_ID_MONTHLY || process.env.STRIPE_PRICE_ID;
+  const PRICE_YEARLY = process.env.STRIPE_PRICE_ID_YEARLY || process.env.STRIPE_PRICE_ID;
+  if (!STRIPE_SECRET || (!PRICE_MONTHLY && !PRICE_YEARLY)) {
     return res.status(501).json({ error: 'Stripe not configured (STRIPE_SECRET or STRIPE_PRICE_ID missing)' });
   }
   // minimal validation
-  const { success_url, cancel_url, customer_email } = req.body || {};
-  if (!success_url || !cancel_url) {
+  const body = req.body || {};
+  const b_success = body.success_url;
+  const b_cancel = body.cancel_url;
+  if (!b_success || !b_cancel) {
     return res.status(400).json({ error: 'success_url and cancel_url are required in body' });
   }
   try {
-    const body = req.body || {};
-    // Minimal payload: { success_url, cancel_url, customer_email }
-    const success_url = body.success_url || (BASE_URL.replace(/\/$/,'') + '/');
-    const cancel_url = body.cancel_url || (BASE_URL.replace(/\/$/,'') + '/');
+    const success_url = b_success || (BASE_URL.replace(/\/$/,'') + '/');
+    const cancel_url = b_cancel || (BASE_URL.replace(/\/$/,'') + '/');
     const customer_email = body.customer_email || null;
+    const plan = (body.plan || 'monthly').toLowerCase();
+    let priceToUse = PRICE_MONTHLY;
+    if(plan === 'yearly') priceToUse = PRICE_YEARLY;
+    if(!priceToUse) return res.status(501).json({ error: 'Stripe price IDs not configured for selected plan' });
+
     // Lazy require to avoid crash when stripe not installed
     const Stripe = require('stripe');
     const stripe = Stripe(STRIPE_SECRET);
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
-      line_items: [{ price: STRIPE_PRICE_ID, quantity: 1 }],
+      line_items: [{ price: priceToUse, quantity: 1 }],
       success_url,
       cancel_url,
       customer_email,
