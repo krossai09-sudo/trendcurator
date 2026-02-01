@@ -287,7 +287,7 @@ app.post('/publish', (req, res) => {
       const count = (row && row.c) || 0;
       const baseUrl = BASE_URL_ENV || (process.env.RENDER ? DEFAULT_RENDER_BASE : `${req.get('x-forwarded-proto')||req.protocol}://${req.get('x-forwarded-host')||req.get('host')}`);
       const issueUrl = `${baseUrl.replace(/\/$/, '')}/archive.html#${id}`;
-      console.log(JSON.stringify({event:'publish', id, title:value.title, subscribers:count, ts, baseUrl, issueUrl, linkInfo:resInfo||null}));
+      console.log(JSON.stringify({event:'publish_issue', id, title:value.title, subscribers:count, ts, baseUrl, issueUrl, linkInfo:resInfo||null}));
 
       // Enqueue emails for matching subscribers if email_queue exists
       db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='email_queue'", (errq,rq)=>{
@@ -385,6 +385,7 @@ app.post('/create-checkout-session', async (req, res) => {
       cancel_url,
       customer_email,
     });
+    console.log(JSON.stringify({ event: 'checkout_session_created', id: session.id, price: priceToUse, customer_email: customer_email || null }));
     return res.json({ ok: true, url: session.url, id: session.id });
   } catch (e) {
     console.error('Stripe create-checkout error', e);
@@ -498,7 +499,8 @@ app.post('/_worker/process-email', async (req,res)=>{
       html = html.replace(/{{title}}/g, issue.title || '').replace(/{{reason}}/g, issue.reason || '').replace(/{{link}}/g, issue.link || '#');
 
       if(!RESEND_KEY){
-        console.log('[EMAIL_WORKER] DRY RUN: would send to', sub.email, 'template', r.template);
+        // dry run
+        console.log(JSON.stringify({ event:'email_send', provider:'resend', status:'dry_run', email: sub.email, template: r.template }));
         db.run('UPDATE email_queue SET status=? WHERE id=?', ['sent_dry', r.id]);
         processed++;
         continue;
@@ -507,13 +509,29 @@ app.post('/_worker/process-email', async (req,res)=>{
       try{
         const payload = { from: FROM, to: sub.email, subject: `${r.template.replace(/_/g,' ')} — ${issue.title}`, html };
         const resp = await fetch('https://api.resend.com/emails',{ method:'POST', headers:{ 'Authorization':'Bearer '+RESEND_KEY,'Content-Type':'application/json' }, body: JSON.stringify(payload) });
-        if(resp.ok){ db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['sent', r.id]); processed++; }
-        else { const text = await resp.text(); console.error('Resend error', resp.status, text); db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['failed', r.id]); }
-      }catch(e){ console.error('Resend exception', e); db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['failed', r.id]); }
+        if(resp.ok){ db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['sent', r.id]); console.log(JSON.stringify({ event:'email_send', provider:'resend', status:'sent', email: sub.email, template: r.template })); processed++; }
+        else { const text = await resp.text(); console.log(JSON.stringify({ event:'email_send', provider:'resend', status:'failed', email: sub.email, template: r.template, code: resp.status })); console.error('Resend error', resp.status, text); db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['failed', r.id]); }
+      }catch(e){ console.log(JSON.stringify({ event:'email_send', provider:'resend', status:'exception', email: sub.email, template: r.template, error: String(e) })); console.error('Resend exception', e); db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['failed', r.id]); }
     }
+    // log run summary
+    console.log(JSON.stringify({ event:'email_worker_run', processed }));
     return res.json({ ok:true, processed });
   });
 });
+
+// Internal scheduler: run email worker every 10 minutes (600000ms)
+if(!process.env.DISABLE_INTERNAL_SCHEDULER){
+  const scheduleIntervalMs = 10*60*1000;
+  setInterval(async ()=>{
+    try{
+      const url = (process.env.BASE_URL || BASE_URL).replace(/\/$/,'') + '/_worker/process-email?limit=100';
+      const resp = await fetch(url, { method: 'POST' });
+      const data = await resp.json().catch(()=>({ok:false}));
+      const processed = data && data.processed ? data.processed : 0;
+      console.log(JSON.stringify({ event:'email_worker_run', processed }));
+    }catch(e){ console.error('Scheduler email worker invocation failed', e); }
+  }, scheduleIntervalMs);
+}
 
 // Billing portal redirect (create session) — create session and redirect user
 app.get('/billing-portal', async (req, res) => {
