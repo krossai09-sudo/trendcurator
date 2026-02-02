@@ -649,6 +649,11 @@ app.post('/login', (req,res)=>{
       // set simple session cookie valid for 30 days
       const maxAge = 30*24*60*60*1000; // ms
       res.cookie('tc_session', id, { httpOnly: true, secure: process.env.NODE_ENV==='production', sameSite: 'lax', maxAge });
+      // prevent caching of auth/session response
+      res.set('Cache-Control','no-store, no-cache, must-revalidate, max-age=0');
+      res.set('Pragma','no-cache');
+      res.set('Expires','0');
+      res.set('Vary','Cookie');
       // return success and redirect url
       return res.json({ ok:true, redirect: '/dashboard' });
     };
@@ -674,6 +679,11 @@ app.post('/claim-session', express.json(), (req,res)=>{
     // set cookie for this subscriber id
     const maxAge = 30*24*60*60*1000; // 30 days
     res.cookie('tc_session', sid, { httpOnly: true, secure: process.env.NODE_ENV==='production', sameSite: 'lax', maxAge, path: '/' });
+    // prevent caching
+    res.set('Cache-Control','no-store, no-cache, must-revalidate, max-age=0');
+    res.set('Pragma','no-cache');
+    res.set('Expires','0');
+    res.set('Vary','Cookie');
     return res.json({ ok:true, id: sid, pro: row.pro===1, stripe_status: row.stripe_status });
   });
 });
@@ -681,10 +691,28 @@ app.post('/claim-session', express.json(), (req,res)=>{
 // Me endpoint: returns current session subscriber info
 app.get('/me', (req,res)=>{
   const sid = req.cookies && req.cookies.tc_session;
-  if(!sid) return res.json({ ok:false });
+  if(!sid) {
+    // ensure responses aren't cached when unauthenticated either
+    res.set('Cache-Control','no-store, no-cache, must-revalidate, max-age=0');
+    res.set('Pragma','no-cache');
+    res.set('Expires','0');
+    res.set('Vary','Cookie');
+    return res.json({ ok:false });
+  }
   db.get('SELECT email,pro,stripe_status FROM subscribers WHERE id=?', [sid], (err,row)=>{
     if(err) return res.status(500).json({ error:'db_error' });
-    if(!row) return res.json({ ok:false });
+    if(!row){
+      res.set('Cache-Control','no-store, no-cache, must-revalidate, max-age=0');
+      res.set('Pragma','no-cache');
+      res.set('Expires','0');
+      res.set('Vary','Cookie');
+      return res.json({ ok:false });
+    }
+    // prevent caching of session data
+    res.set('Cache-Control','no-store, no-cache, must-revalidate, max-age=0');
+    res.set('Pragma','no-cache');
+    res.set('Expires','0');
+    res.set('Vary','Cookie');
     return res.json({ ok:true, email: row.email, pro: row.pro===1, stripe_status: row.stripe_status });
   });
 });
