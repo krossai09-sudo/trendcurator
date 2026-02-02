@@ -172,8 +172,16 @@ app.post('/signup', async (req, res) => {
     db.get('SELECT id,tier FROM subscribers WHERE email = ?', [value.email], async (err,row)=>{
       if(err){ console.error('DB error', err); return res.status(500).json({ error: 'Database error' }); }
       if(row){
-        // friendly response when already subscribed
+        // friendly response when already subscribed — also set session cookie so user is logged in
         console.log(`[SIGNUP] existing email: ${value.email}`);
+        // set cookie for this subscriber id
+        const maxAge = 30*24*60*60*1000;
+        res.cookie('tc_session', row.id, { httpOnly: true, secure: process.env.NODE_ENV==='production', sameSite: 'lax', maxAge });
+        // prevent caching
+        res.set('Cache-Control','no-store, no-cache, must-revalidate, max-age=0');
+        res.set('Pragma','no-cache');
+        res.set('Expires','0');
+        res.set('Vary','Cookie');
         return res.status(200).json({ ok: true, id: row.id, message: 'already_subscribed' });
       }
       const id = uuidv4();
@@ -183,6 +191,18 @@ app.post('/signup', async (req, res) => {
         console.log(`[SIGNUP] New signup: ${value.email} source=${value.source||''} utm=${value.utm||''}`);
         const resp = { ok: true, id };
         console.log(JSON.stringify({event:'signup', email: value.email, source: value.source||'', resp}));
+
+        // set session cookie for this new subscriber (auto-login for Start free)
+        const maxAge = 30*24*60*60*1000;
+        const cookieOptions = `Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(maxAge/1000)}${process.env.NODE_ENV==='production' ? '; Secure' : ''}`;
+        try{ res.cookie('tc_session', id, { httpOnly: true, secure: process.env.NODE_ENV==='production', sameSite: 'lax', maxAge }); }catch(e){}
+        // explicit Set-Cookie fallback in case res.cookie did not emit header
+        res.setHeader('Set-Cookie', `tc_session=${id}; ${cookieOptions}`);
+        // prevent caching
+        res.set('Cache-Control','no-store, no-cache, must-revalidate, max-age=0');
+        res.set('Pragma','no-cache');
+        res.set('Expires','0');
+        res.set('Vary','Cookie');
 
         // Enqueue welcome email (uses template welcome_free)
         db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='email_queue'", (errq,rq)=>{
@@ -364,6 +384,49 @@ app.post('/create-checkout-session', async (req, res) => {
     console.error('Stripe create-checkout error', e);
     return res.status(500).json({ error: 'Stripe error', detail: e.message });
   }
+});
+
+// Post-checkout handler: reads Stripe session_id from success redirect and creates/logs-in session
+app.get('/post-checkout', async (req, res) => {
+  const session_id = req.query.session_id;
+  if(!session_id) return res.status(400).send('session_id required');
+  if(!STRIPE_SECRET) return res.redirect('/dashboard');
+  try{
+    const Stripe = require('stripe');
+    const stripe = Stripe(STRIPE_SECRET);
+    const session = await stripe.checkout.sessions.retrieve(session_id, { expand: ['customer'] });
+    const email = (session && session.customer_details && session.customer_details.email) ? session.customer_details.email : (session.customer_email || null);
+    if(email){
+      db.get('SELECT id FROM subscribers WHERE email = ?', [email], (err,row)=>{
+        if(err) console.error('DB error on post-checkout claim', err);
+        if(row){
+          const sid = row.id;
+          const maxAge = 30*24*60*60*1000;
+          res.cookie('tc_session', sid, { httpOnly: true, secure: process.env.NODE_ENV==='production', sameSite: 'lax', maxAge, path: '/' });
+          res.set('Cache-Control','no-store, no-cache, must-revalidate, max-age=0');
+          res.set('Pragma','no-cache');
+          res.set('Expires','0');
+          res.set('Vary','Cookie');
+          return res.redirect('/dashboard');
+        } else {
+          const sid = uuidv4();
+          const nowTs = Date.now();
+          db.run('INSERT INTO subscribers (id,email,source,utm,ts,pro,stripe_customer_id,stripe_subscription_id,stripe_status,current_period_end,stripe_updated_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?)', [sid,email,'stripe',null,nowTs,1,session.customer,session.subscription,'active',null,nowTs], (ierr)=>{
+            if(ierr) console.error('DB insert error in post-checkout', ierr);
+            const maxAge = 30*24*60*60*1000;
+            res.cookie('tc_session', sid, { httpOnly: true, secure: process.env.NODE_ENV==='production', sameSite: 'lax', maxAge, path: '/' });
+            res.set('Cache-Control','no-store, no-cache, must-revalidate, max-age=0');
+            res.set('Pragma','no-cache');
+            res.set('Expires','0');
+            res.set('Vary','Cookie');
+            return res.redirect('/dashboard');
+          });
+        }
+      });
+    } else {
+      return res.redirect('/dashboard');
+    }
+  }catch(e){ console.error('post-checkout error', e); return res.redirect('/dashboard'); }
 });
 
 // webhook endpoint
