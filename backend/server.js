@@ -451,6 +451,8 @@ app.post('/_worker/process-email', async (req,res)=>{
     const FROM = process.env.RESEND_FROM || 'no-reply@trendcurator.org';
     let processed = 0;
     for(const r of rows){
+      // start processing row
+      console.log(JSON.stringify({ event:'email_worker_process_start', id: r.id, template: r.template }));
       // fetch subscriber and issue
       const sub = await new Promise((resolve)=> db.get('SELECT id,email,tier,pro FROM subscribers WHERE id=?',[r.subscriber_id], (e,s)=> resolve(s)));
       const issue = r.issue_id ? await new Promise((resolve)=> db.get('SELECT id,title,reason,link,type,visibility FROM issues WHERE id=?',[r.issue_id], (e,i)=> resolve(i))) : null;
