@@ -452,28 +452,30 @@ app.post('/_worker/process-email', async (req,res)=>{
     let processed = 0;
     for(const r of rows){
       // fetch subscriber and issue
-      const sub = await new Promise((resolve)=> db.get('SELECT id,email,tier FROM subscribers WHERE id=?',[r.subscriber_id], (e,s)=> resolve(s)));
+      const sub = await new Promise((resolve)=> db.get('SELECT id,email,tier,pro FROM subscribers WHERE id=?',[r.subscriber_id], (e,s)=> resolve(s)));
       const issue = r.issue_id ? await new Promise((resolve)=> db.get('SELECT id,title,reason,link,type,visibility FROM issues WHERE id=?',[r.issue_id], (e,i)=> resolve(i))) : null;
       if(!sub){
         db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['failed', r.id]);
+        console.log(JSON.stringify({ event:'email_worker_skip', id: r.id, reason:'missing_subscriber' }));
         continue;
       }
+      // normalize subscriber tier (support legacy pro int)
+      const subTier = sub.tier || (typeof sub.pro !== 'undefined' ? (sub.pro==1 ? 'pro' : 'free') : undefined);
       // defense: ensure tier matches template
-      // If issue is missing (welcome templates), skip visibility checks
       if(issue){
-        if(issue.visibility==='pro' && sub.tier!=='pro'){ db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['skipped', r.id]); console.log(JSON.stringify({ event:'email_worker_skip', id: r.id, reason:'subscriber_tier_mismatch', required: 'pro', subscriber_tier: sub.tier })); continue; }
-        if(issue.visibility==='free' && sub.tier!=='free'){ db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['skipped', r.id]); console.log(JSON.stringify({ event:'email_worker_skip', id: r.id, reason:'subscriber_tier_mismatch', required: 'free', subscriber_tier: sub.tier })); continue; }
+        if(issue.visibility==='pro' && subTier!=='pro'){ db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['skipped', r.id]); console.log(JSON.stringify({ event:'email_worker_skip', id: r.id, reason:'subscriber_tier_mismatch', required: 'pro', subscriber_tier: subTier })); continue; }
+        if(issue.visibility==='free' && subTier!=='free'){ db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['skipped', r.id]); console.log(JSON.stringify({ event:'email_worker_skip', id: r.id, reason:'subscriber_tier_mismatch', required: 'free', subscriber_tier: subTier })); continue; }
       } else {
         // allow templates that do not require an issue (welcome emails)
-        console.log(JSON.stringify({ event:'email_worker_note', id: r.id, note:'issue_missing_allow_welcome', template: r.template }));
+        console.log(JSON.stringify({ event:'email_worker_note', id: r.id, note:'issue_missing_allow_welcome', template: r.template, subscriber_tier: subTier }));
       }
 
       // load template
       const tplPath = path.join(__dirname,'templates', r.template + '.html');
       let html = '';
-      try{ html = fs.readFileSync(tplPath,'utf8'); }catch(e){ console.error('Template read error', e); db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['failed', r.id]); continue; }
+      try{ html = fs.readFileSync(tplPath,'utf8'); }catch(e){ console.log(JSON.stringify({ event:'email_worker_skip', id: r.id, reason:'template_missing', template: r.template })); db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['failed', r.id]); continue; }
       // simple interpolation
-      html = html.replace(/{{title}}/g, issue.title || '').replace(/{{reason}}/g, issue.reason || '').replace(/{{link}}/g, issue.link || '#');
+      html = html.replace(/{{title}}/g, (issue && issue.title) ? issue.title : '').replace(/{{reason}}/g, (issue && issue.reason) ? issue.reason : '').replace(/{{link}}/g, (issue && issue.link) ? issue.link : '#');
 
       if(!RESEND_KEY){
         // dry run
