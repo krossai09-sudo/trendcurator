@@ -164,6 +164,8 @@ async function sendWelcomeEmail(toEmail){
 app.post('/signup', async (req, res) => {
   const { error, value } = signupSchema.validate(req.body);
   if (error) return res.status(400).json({ error: error.message });
+  // normalize email to avoid case/whitespace duplicates
+  value.email = String(value.email).trim().toLowerCase();
   const ts = Date.now();
   try{
     // check if email exists
