@@ -387,22 +387,26 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res
     switch (event.type) {
       case 'checkout.session.completed':
         console.log('stripe event: checkout.session.completed', obj.id);
-        // attempt to find or create subscriber by customer_email
         (async ()=>{
           try{
             const email = obj.customer_email || (obj.customer && obj.customer.email) || null;
             const customer = obj.customer || obj.customer_id || null;
-            // persist minimal stripe_events for audit (simple insert)
+            const subscription_id = obj.subscription || null;
             const seid = uuidv4();
             db.run('INSERT INTO links (id,slug,default_url,ts) VALUES (?,?,?,?)', [seid, `evt-${seid}`, `stripe:${obj.id}`, Date.now()], ()=>{});
             if(email){
-              db.get('SELECT id FROM subscribers WHERE email = ?', [email], (err,row)=>{
+              db.get('SELECT id,pro FROM subscribers WHERE email = ?', [email], (err,row)=>{
                 if(err) return console.error('DB error matching email',err);
                 const sid = row ? row.id : uuidv4();
-                if(!row){ db.run('INSERT INTO subscribers (id,email,source,utm,ts) VALUES (?,?,?,?,?)',[sid,email,'stripe',null,Date.now()]); }
-                // mark provisional pro until subscription webhook fires
-                db.run('UPDATE subscribers SET tier = ? WHERE id = ?', ['pro', sid]);
-                console.log('Marked subscriber as pro (email match)', email);
+                const nowTs = Date.now();
+                const updateOrInsert = row ?
+                  db.run('UPDATE subscribers SET pro=1, stripe_customer_id=?, stripe_subscription_id=?, stripe_status=?, current_period_end=?, stripe_updated_ts=? WHERE id=?', [customer, subscription_id, 'active', null, nowTs, sid], (uerr)=>{
+                    if(uerr) console.error('DB update error', uerr); else console.log(JSON.stringify({ event:'pro_granted', email, subscription_id }));
+                  })
+                :
+                  db.run('INSERT INTO subscribers (id,email,source,utm,ts,pro,stripe_customer_id,stripe_subscription_id,stripe_status,current_period_end,stripe_updated_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?)', [sid,email,'stripe',null,nowTs,1,customer,subscription_id,'active',null,nowTs], (ierr)=>{
+                    if(ierr) console.error('DB insert error', ierr); else console.log(JSON.stringify({ event:'pro_granted', email, subscription_id }));
+                  });
               });
             }
           }catch(e){ console.error('checkout.session.process error', e); }
