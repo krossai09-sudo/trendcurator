@@ -665,14 +665,25 @@ app.post('/login', (req,res)=>{
 app.post('/claim-session', express.json(), (req,res)=>{
   const email = req.body && req.body.email ? String(req.body.email).trim().toLowerCase() : null;
   if(!email) return res.status(400).json({ error: 'email required' });
-  db.get('SELECT id,tier FROM subscribers WHERE email = ?', [email], (err,row)=>{
+  db.get('SELECT id,pro,stripe_status FROM subscribers WHERE email = ?', [email], (err,row)=>{
     if(err) return res.status(500).json({ error: 'db_error' });
     if(!row) return res.status(404).json({ error: 'not_found' });
     const sid = row.id;
     // set cookie for this subscriber id
-    const maxAge = 30*24*60*60*1000;
-    res.cookie('tc_session', sid, { httpOnly: true, secure: process.env.NODE_ENV==='production', sameSite: 'lax', maxAge });
-    return res.json({ ok:true, id: sid, tier: row.tier });
+    const maxAge = 30*24*60*60*1000; // 30 days
+    res.cookie('tc_session', sid, { httpOnly: true, secure: process.env.NODE_ENV==='production', sameSite: 'lax', maxAge, path: '/' });
+    return res.json({ ok:true, id: sid, pro: row.pro===1, stripe_status: row.stripe_status });
+  });
+});
+
+// Me endpoint: returns current session subscriber info
+app.get('/me', (req,res)=>{
+  const sid = req.cookies && req.cookies.tc_session;
+  if(!sid) return res.json({ ok:false });
+  db.get('SELECT email,pro,stripe_status FROM subscribers WHERE id=?', [sid], (err,row)=>{
+    if(err) return res.status(500).json({ error:'db_error' });
+    if(!row) return res.json({ ok:false });
+    return res.json({ ok:true, email: row.email, pro: row.pro===1, stripe_status: row.stripe_status });
   });
 });
 

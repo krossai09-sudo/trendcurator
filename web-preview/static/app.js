@@ -208,7 +208,19 @@ function renderAdminPanel(){
 }
 
 // Wire Start Free and Join Pro buttons; On load, refresh latest pick and inject admin panel only if ?admin=1
-window.addEventListener('DOMContentLoaded', ()=>{ 
+window.addEventListener('DOMContentLoaded', async ()=>{ 
+  // fetch /me and render badge if logged in
+  try{
+    const me = await fetch('/me').then(r=>r.json()).catch(()=>null);
+    if(me && me.ok){
+      const header = document.querySelector('header');
+      const badge = document.createElement('div');
+      badge.style.marginLeft='auto'; badge.style.fontSize='14px'; badge.style.color='var(--muted)'; badge.style.display='flex'; badge.style.alignItems='center'; badge.style.gap='8px';
+      badge.innerHTML = `<span style="font-weight:700">${me.email}</span><span style="background:#052027;color:#cdeff3;padding:6px 8px;border-radius:8px;font-weight:700">${me.pro? 'Pro':'Free'}</span>`;
+      header.appendChild(badge);
+    }
+  }catch(e){}
+
   refreshLatestPick();
   const params = new URLSearchParams(window.location.search);
   const showAdmin = params.get('admin') === '1';
