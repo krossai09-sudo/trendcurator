@@ -459,8 +459,14 @@ app.post('/_worker/process-email', async (req,res)=>{
         continue;
       }
       // defense: ensure tier matches template
-      if(issue.visibility==='pro' && sub.tier!=='pro'){ db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['skipped', r.id]); continue; }
-      if(issue.visibility==='free' && sub.tier!=='free'){ db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['skipped', r.id]); continue; }
+      // If issue is missing (welcome templates), skip visibility checks
+      if(issue){
+        if(issue.visibility==='pro' && sub.tier!=='pro'){ db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['skipped', r.id]); console.log(JSON.stringify({ event:'email_worker_skip', id: r.id, reason:'subscriber_tier_mismatch', required: 'pro', subscriber_tier: sub.tier })); continue; }
+        if(issue.visibility==='free' && sub.tier!=='free'){ db.run('UPDATE email_queue SET status=?, attempts=attempts+1 WHERE id=?', ['skipped', r.id]); console.log(JSON.stringify({ event:'email_worker_skip', id: r.id, reason:'subscriber_tier_mismatch', required: 'free', subscriber_tier: sub.tier })); continue; }
+      } else {
+        // allow templates that do not require an issue (welcome emails)
+        console.log(JSON.stringify({ event:'email_worker_note', id: r.id, note:'issue_missing_allow_welcome', template: r.template }));
+      }
 
       // load template
       const tplPath = path.join(__dirname,'templates', r.template + '.html');
